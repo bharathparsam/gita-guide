@@ -1,0 +1,127 @@
+{
+  "schema_version": "1.0",
+  "started_at": "2026-09-25T05:45:43.791216+00:00",
+  "duration_seconds": 14.141,
+  "taxonomy_version": "1.0",
+  "models": [
+    "typesafe/jev-1.13-20260917"
+  ],
+  "cases": 26,
+  "repeats": 1,
+  "total_requests": 26,
+  "successful_requests": 26,
+  "error_rate": 0.0,
+  "latency_seconds": {
+    "mean": 0.5438,
+    "p95": 0.9229
+  },
+  "metrics": {
+    "in_scope": 1.0,
+    "primary_situation": 1.0,
+    "primary_emotion": 1.0,
+    "root_conflict": 0.8636,
+    "joint": 0.8846
+  },
+  "mean_confidence": {
+    "in_scope": 0.8381,
+    "primary_situation": 0.9819,
+    "primary_emotion": 0.9004,
+    "root_conflict": 0.8258
+  },
+  "review_rate": 0.3077,
+  "selective_joint_accuracy": 1.0,
+  "auto_accepted_requests": 18,
+  "failures": [
+    {
+      "id": "two_job_offers",
+      "repeat": 1,
+      "expected": {
+        "in_scope": true,
+        "primary_situation": [
+          "confusion"
+        ],
+        "primary_emotion": [
+          "confusion"
+        ],
+        "root_conflict": [
+          "duty_conflict"
+        ]
+      },
+      "actual": {
+        "in_scope": true,
+        "primary_situation": "confusion",
+        "primary_emotion": "confusion",
+        "root_conflict": "attachment_to_results"
+      },
+      "confidence": {
+        "in_scope": 0.99,
+        "primary_situation": 0.98,
+        "primary_emotion": 1.0,
+        "root_conflict": 0.25
+      }
+    },
+    {
+      "id": "thesis_procrastination",
+      "repeat": 1,
+      "expected": {
+        "in_scope": true,
+        "primary_situation": [
+          "lack_of_motivation"
+        ],
+        "primary_emotion": [
+          "frustration"
+        ],
+        "root_conflict": [
+          "other",
+          "lack_of_self_control"
+        ]
+      },
+      "actual": {
+        "in_scope": true,
+        "primary_situation": "lack_of_motivation",
+        "primary_emotion": "frustration",
+        "root_conflict": "fear"
+      },
+      "confidence": {
+        "in_scope": 0.98,
+        "primary_situation": 1.0,
+        "primary_emotion": 0.99,
+        "root_conflict": 0.45
+      }
+    },
+    {
+      "id": "meaningless_success",
+      "repeat": 1,
+      "expected": {
+        "in_scope": true,
+        "primary_situation": [
+          "purpose"
+        ],
+        "primary_emotion": [
+          "confusion"
+        ],
+        "root_conflict": [
+          "other",
+          "duty_conflict"
+        ]
+      },
+      "actual": {
+        "in_scope": true,
+        "primary_situation": "purpose",
+        "primary_emotion": "confusion",
+        "root_conflict": "uncertainty"
+      },
+      "confidence": {
+        "in_scope": 0.99,
+        "primary_situation": 1.0,
+        "primary_emotion": 0.94,
+        "root_conflict": 0.47
+      }
+    }
+  ],
+  "errors": [],
+  "dataset": {
+    "path": "evals/classification_cases.json",
+    "sha256": "cb72706a925799c594812b50ade0990a48f89a86e962adb1c04aaefb97ea4e0e"
+  }
+}

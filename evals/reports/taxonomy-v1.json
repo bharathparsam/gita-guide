@@ -1,0 +1,59 @@
+{
+  "cases": 26,
+  "repeats": 1,
+  "total_requests": 26,
+  "metrics": {
+    "in_scope": 1.0,
+    "primary_situation": 1.0,
+    "primary_emotion": 1.0,
+    "root_conflict": 0.9091,
+    "joint": 0.9231
+  },
+  "failures": [
+    {
+      "id": "two_job_offers",
+      "repeat": 1,
+      "expected": {
+        "in_scope": true,
+        "primary_situation": [
+          "confusion"
+        ],
+        "primary_emotion": [
+          "confusion"
+        ],
+        "root_conflict": [
+          "duty_conflict"
+        ]
+      },
+      "actual": {
+        "in_scope": true,
+        "primary_situation": "confusion",
+        "primary_emotion": "confusion",
+        "root_conflict": "attachment_to_results"
+      }
+    },
+    {
+      "id": "meaningless_success",
+      "repeat": 1,
+      "expected": {
+        "in_scope": true,
+        "primary_situation": [
+          "purpose"
+        ],
+        "primary_emotion": [
+          "confusion"
+        ],
+        "root_conflict": [
+          "other",
+          "duty_conflict"
+        ]
+      },
+      "actual": {
+        "in_scope": true,
+        "primary_situation": "purpose",
+        "primary_emotion": "confusion",
+        "root_conflict": "uncertainty"
+      }
+    }
+  ]
+}

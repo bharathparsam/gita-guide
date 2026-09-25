@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+*.npy
+!data/processed/gita_embeddings.npy
+data/vector/
+var/

@@ -1,0 +1,162 @@
+{
+  "schema_version": "1.0",
+  "taxonomy_version": "1.0",
+  "cases": [
+    {
+      "id": "failure_after_interview",
+      "message": "I worked for months but failed my interview, and now I feel like I am not good enough.",
+      "expected": {"in_scope": true, "primary_situation": ["fear_of_failure"], "primary_emotion": ["sadness"], "root_conflict": ["attachment_to_results"]},
+      "tags": ["failure", "explicit-emotion"]
+    },
+    {
+      "id": "fear_of_applying",
+      "message": "I keep avoiding applications because another rejection would prove that I am a failure.",
+      "expected": {"in_scope": true, "primary_situation": ["fear_of_failure"], "primary_emotion": ["fear"], "root_conflict": ["fear", "attachment_to_results"]},
+      "tags": ["failure", "avoidance"]
+    },
+    {
+      "id": "exam_result_wait",
+      "message": "My exam result comes next week and I cannot stop worrying about what it will be.",
+      "expected": {"in_scope": true, "primary_situation": ["outcome_anxiety"], "primary_emotion": ["fear"], "root_conflict": ["uncertainty"]},
+      "tags": ["future", "education"]
+    },
+    {
+      "id": "promotion_uncertainty",
+      "message": "The promotion decision is out of my hands, but I keep imagining the worst every night.",
+      "expected": {"in_scope": true, "primary_situation": ["outcome_anxiety"], "primary_emotion": ["fear"], "root_conflict": ["uncertainty", "attachment_to_results"]},
+      "tags": ["future", "career"]
+    },
+    {
+      "id": "peer_promotion",
+      "message": "Everyone from my college seems to be getting promoted while I am still in the same role. I feel jealous and behind.",
+      "expected": {"in_scope": true, "primary_situation": ["comparison"], "primary_emotion": ["envy"], "root_conflict": ["comparison"]},
+      "tags": ["comparison", "career"]
+    },
+    {
+      "id": "social_media_comparison",
+      "message": "Seeing my friends' perfect lives online makes me feel that my own life is worthless.",
+      "expected": {"in_scope": true, "primary_situation": ["comparison"], "primary_emotion": ["envy", "sadness"], "root_conflict": ["comparison"]},
+      "tags": ["comparison", "social-media"]
+    },
+    {
+      "id": "revenge_after_insult",
+      "message": "My colleague humiliated me publicly. I am furious and keep planning how to make him regret it.",
+      "expected": {"in_scope": true, "primary_situation": ["anger"], "primary_emotion": ["anger"], "root_conflict": ["ego"]},
+      "tags": ["anger", "work"]
+    },
+    {
+      "id": "resentment_unforgiving",
+      "message": "Years later I still replay how they wronged me, and I cannot let go of the resentment.",
+      "expected": {"in_scope": true, "primary_situation": ["anger"], "primary_emotion": ["anger"], "root_conflict": ["ego", "loss"]},
+      "tags": ["anger", "forgiveness"]
+    },
+    {
+      "id": "parent_death",
+      "message": "My father died last month. The house feels empty and I miss him every day.",
+      "expected": {"in_scope": true, "primary_situation": ["grief"], "primary_emotion": ["sadness"], "root_conflict": ["loss"]},
+      "tags": ["grief", "bereavement"]
+    },
+    {
+      "id": "relationship_ending",
+      "message": "My partner ended our ten-year relationship, and I cannot accept that our life together is over.",
+      "expected": {"in_scope": true, "primary_situation": ["grief"], "primary_emotion": ["sadness"], "root_conflict": ["loss"]},
+      "tags": ["grief", "breakup"]
+    },
+    {
+      "id": "two_job_offers",
+      "message": "I have two job offers and cannot decide between meaningful work with less pay and secure work I do not enjoy.",
+      "expected": {"in_scope": true, "primary_situation": ["confusion"], "primary_emotion": ["confusion"], "root_conflict": ["duty_conflict"]},
+      "tags": ["decision", "career"]
+    },
+    {
+      "id": "truth_or_protect_friend",
+      "message": "I do not know whether to tell the truth and hurt my friend or stay silent and feel dishonest.",
+      "expected": {"in_scope": true, "primary_situation": ["confusion"], "primary_emotion": ["confusion", "guilt"], "root_conflict": ["duty_conflict"]},
+      "tags": ["decision", "ethics"]
+    },
+    {
+      "id": "thesis_procrastination",
+      "message": "I know my thesis matters, but every day I stare at it and cannot make myself begin.",
+      "expected": {"in_scope": true, "primary_situation": ["lack_of_motivation"], "primary_emotion": ["frustration"], "root_conflict": ["other", "lack_of_self_control"]},
+      "tags": ["motivation", "education"]
+    },
+    {
+      "id": "lost_drive",
+      "message": "I used to care about my work, but lately I feel no drive to continue even simple tasks.",
+      "expected": {"in_scope": true, "primary_situation": ["lack_of_motivation"], "primary_emotion": ["sadness", "other"], "root_conflict": ["other"]},
+      "tags": ["motivation", "work"]
+    },
+    {
+      "id": "meaningless_success",
+      "message": "My career is successful, but I keep wondering what any of it means and what my life is for.",
+      "expected": {"in_scope": true, "primary_situation": ["purpose"], "primary_emotion": ["confusion"], "root_conflict": ["other", "duty_conflict"]},
+      "tags": ["purpose", "career"]
+    },
+    {
+      "id": "search_for_calling",
+      "message": "I want to choose a path that serves something larger than me, but I do not know my calling.",
+      "expected": {"in_scope": true, "primary_situation": ["purpose"], "primary_emotion": ["confusion"], "root_conflict": ["duty_conflict", "uncertainty"]},
+      "tags": ["purpose", "values"]
+    },
+    {
+      "id": "doomscrolling",
+      "message": "I promise to stop doomscrolling, but I pick up my phone again every few minutes and then feel ashamed.",
+      "expected": {"in_scope": true, "primary_situation": ["discipline"], "primary_emotion": ["guilt", "frustration"], "root_conflict": ["lack_of_self_control"]},
+      "tags": ["discipline", "habit"]
+    },
+    {
+      "id": "breaking_diet_commitment",
+      "message": "Cravings keep defeating my commitment to eat well, and I am frustrated with my lack of control.",
+      "expected": {"in_scope": true, "primary_situation": ["discipline"], "primary_emotion": ["frustration"], "root_conflict": ["lack_of_self_control"]},
+      "tags": ["discipline", "habit"]
+    },
+    {
+      "id": "spouse_argument",
+      "message": "My spouse and I argue about chores every week, and neither of us feels heard.",
+      "expected": {"in_scope": true, "primary_situation": ["relationship_conflict"], "primary_emotion": ["frustration", "anger"], "root_conflict": ["duty_conflict", "ego"]},
+      "tags": ["relationship", "family"]
+    },
+    {
+      "id": "friend_boundary",
+      "message": "My friend ignores my boundaries, but I am afraid that confronting her will end the friendship.",
+      "expected": {"in_scope": true, "primary_situation": ["relationship_conflict"], "primary_emotion": ["fear", "frustration"], "root_conflict": ["fear"]},
+      "tags": ["relationship", "boundaries"]
+    },
+    {
+      "id": "guilt_after_lie",
+      "message": "I lied to protect my reputation and now the guilt will not leave me.",
+      "expected": {"in_scope": true, "primary_situation": ["other"], "primary_emotion": ["guilt"], "root_conflict": ["ego"]},
+      "tags": ["other", "guilt"]
+    },
+    {
+      "id": "craving_recognition",
+      "message": "I keep doing good things only because I want people to praise me, and I dislike that about myself.",
+      "expected": {"in_scope": true, "primary_situation": ["other"], "primary_emotion": ["guilt", "frustration"], "root_conflict": ["ego", "desire"]},
+      "tags": ["other", "ego"]
+    },
+    {
+      "id": "weather_query",
+      "message": "Will it rain in Bengaluru tomorrow?",
+      "expected": {"in_scope": false},
+      "tags": ["out-of-scope", "factual"]
+    },
+    {
+      "id": "coding_query",
+      "message": "Write a Python function that sorts a list of integers.",
+      "expected": {"in_scope": false},
+      "tags": ["out-of-scope", "technical"]
+    },
+    {
+      "id": "simple_greeting",
+      "message": "Hello, good morning!",
+      "expected": {"in_scope": false},
+      "tags": ["out-of-scope", "greeting"]
+    },
+    {
+      "id": "arithmetic",
+      "message": "What is 18 multiplied by 7?",
+      "expected": {"in_scope": false},
+      "tags": ["out-of-scope", "factual"]
+    }
+  ]
+}

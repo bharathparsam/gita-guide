@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "model": "nvidia/nemotron-3-embed-1b",
+  "chunks_path": "data/processed/gita_chunks.jsonl",
+  "chunks_sha256": "fc6675379901822c7ba48bc83c9be5f9ac3f3903d90fbe3ca2cb4d77661b9dd0",
+  "rows": 671,
+  "dimensions": 2048,
+  "normalized": true,
+  "embeddings_sha256": "2471bedc78815ddf3f3f7da16b963d03fb1fe56a086a354dec4d16916f55865b",
+  "query_input_type": "query",
+  "passage_input_type": "passage",
+  "query_prefix": ""
+}

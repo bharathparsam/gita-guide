@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "sources": [
+    {
+      "source_id": "gita-swarupananda-1909",
+      "title": "The Bhagavad Gita",
+      "translator": "Swami Swarupananda",
+      "original_publication_year": 1909,
+      "language": "English",
+      "license": "Public domain",
+      "source_url": "https://www.thegita.net/thegitagyan/TheGita%20-%20Gita-Swarupananda.pdf",
+      "reference_url": "https://sacred-texts.com/hin/sbg/index.htm",
+      "local_path": "data/raw/gita-swarupananda.pdf",
+      "sha256": "7d8b39a4aaf502c83a2829a1d3521b0eaa837a5e5affc1588d9355fd1a7c2740",
+      "retrieved_on": "2026-09-25",
+      "notes": "Early twentieth-century English prose translation with chapter and verse numbering."
+    }
+  ]
+}

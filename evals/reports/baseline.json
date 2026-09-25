@@ -1,0 +1,126 @@
+{
+  "cases": 26,
+  "repeats": 1,
+  "total_requests": 26,
+  "metrics": {
+    "in_scope": 1.0,
+    "primary_situation": 0.9091,
+    "primary_emotion": 1.0,
+    "root_conflict": 0.8636,
+    "joint": 0.8077
+  },
+  "failures": [
+    {
+      "id": "fear_of_applying",
+      "repeat": 1,
+      "expected": {
+        "in_scope": true,
+        "primary_situation": [
+          "fear_of_failure"
+        ],
+        "primary_emotion": [
+          "fear"
+        ],
+        "root_conflict": [
+          "fear"
+        ]
+      },
+      "actual": {
+        "in_scope": true,
+        "primary_situation": "fear_of_failure",
+        "primary_emotion": "fear",
+        "root_conflict": "attachment_to_results"
+      }
+    },
+    {
+      "id": "exam_result_wait",
+      "repeat": 1,
+      "expected": {
+        "in_scope": true,
+        "primary_situation": [
+          "outcome_anxiety"
+        ],
+        "primary_emotion": [
+          "fear"
+        ],
+        "root_conflict": [
+          "uncertainty"
+        ]
+      },
+      "actual": {
+        "in_scope": true,
+        "primary_situation": "outcome_anxiety",
+        "primary_emotion": "fear",
+        "root_conflict": "attachment_to_results"
+      }
+    },
+    {
+      "id": "search_for_calling",
+      "repeat": 1,
+      "expected": {
+        "in_scope": true,
+        "primary_situation": [
+          "purpose"
+        ],
+        "primary_emotion": [
+          "confusion"
+        ],
+        "root_conflict": [
+          "duty_conflict"
+        ]
+      },
+      "actual": {
+        "in_scope": true,
+        "primary_situation": "purpose",
+        "primary_emotion": "confusion",
+        "root_conflict": "uncertainty"
+      }
+    },
+    {
+      "id": "guilt_after_lie",
+      "repeat": 1,
+      "expected": {
+        "in_scope": true,
+        "primary_situation": [
+          "other"
+        ],
+        "primary_emotion": [
+          "guilt"
+        ],
+        "root_conflict": [
+          "ego"
+        ]
+      },
+      "actual": {
+        "in_scope": true,
+        "primary_situation": "fear_of_failure",
+        "primary_emotion": "guilt",
+        "root_conflict": "ego"
+      }
+    },
+    {
+      "id": "craving_recognition",
+      "repeat": 1,
+      "expected": {
+        "in_scope": true,
+        "primary_situation": [
+          "other"
+        ],
+        "primary_emotion": [
+          "guilt",
+          "frustration"
+        ],
+        "root_conflict": [
+          "ego",
+          "desire"
+        ]
+      },
+      "actual": {
+        "in_scope": true,
+        "primary_situation": "purpose",
+        "primary_emotion": "guilt",
+        "root_conflict": "ego"
+      }
+    }
+  ]
+}

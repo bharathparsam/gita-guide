@@ -1,49 +1,16 @@
-import os
-import requests
-from dotenv import load_dotenv
-from pprint import pprint
+"""Manual, billable integration check. This module is safe for pytest collection."""
 
-load_dotenv()
+from app.classifiers.jev_classifier import classify_with_jev
+from app.observability.logging import configure_logging
 
-API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-if not API_KEY:
-    raise ValueError("OPENROUTER_API_KEY not found in .env")
+def main() -> None:
+    configure_logging()
+    result = classify_with_jev(
+        "I worked really hard but failed my interview and now I feel useless."
+    )
+    print(result.model_dump_json(indent=2))
 
-url = "https://openrouter.ai/api/alpha/decisions"
 
-payload = {
-    "model": "typesafe/jev-1.13",
-
-    "state": {
-        "message": "I worked really hard but failed my interview and now I feel useless."
-    },
-
-    "questions": {
-        "situation": {
-            "type": "choice",
-            "instructions": "Classify the primary life situation described by the user.",
-            "criteria": {
-                "fear_of_failure": "Fear or disappointment related to failing",
-                "comparison": "Comparing oneself with others",
-                "anger": "Anger or resentment",
-                "grief": "Loss or grief",
-                "other": "None of the above"
-            }
-        }
-    }
-}
-
-response = requests.post(
-    url,
-    headers={
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
-    },
-    json=payload,
-    timeout=30
-)
-
-print("STATUS:", response.status_code)
-print("\nRAW RESPONSE:")
-pprint(response.json())
+if __name__ == "__main__":
+    main()
