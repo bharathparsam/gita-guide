@@ -3,11 +3,13 @@ from __future__ import annotations
 import math
 import os
 from collections.abc import Sequence
+from time import perf_counter
 
 import requests
 from langchain_core.embeddings import Embeddings
 
 from app.observability.logging import get_logger, prompt_log_fields
+from app.observability.metrics import NoOpMetricSink, PhaseOneMetrics
 from app.reliability import CircuitBreaker, RetryPolicy, call_with_resilience
 
 
@@ -39,6 +41,7 @@ class NvidiaNemotronEmbeddings(Embeddings):
         max_attempts: int = 2,
         session: requests.Session | None = None,
         circuit_breaker: CircuitBreaker | None = None,
+        metrics: PhaseOneMetrics | None = None,
     ) -> None:
         if not api_key.strip():
             raise ValueError("NVIDIA_API_KEY is required for embeddings")
@@ -57,9 +60,15 @@ class NvidiaNemotronEmbeddings(Embeddings):
             failure_threshold=5,
             recovery_seconds=30,
         )
+        self.metrics = metrics or PhaseOneMetrics(NoOpMetricSink())
 
     @classmethod
-    def from_environment(cls) -> NvidiaNemotronEmbeddings:
+    def from_environment(
+        cls,
+        *,
+        session: requests.Session | None = None,
+        metrics: PhaseOneMetrics | None = None,
+    ) -> NvidiaNemotronEmbeddings:
         api_key = os.getenv("NVIDIA_API_KEY", "").strip()
         return cls(
             api_key=api_key,
@@ -75,6 +84,8 @@ class NvidiaNemotronEmbeddings(Embeddings):
                 os.getenv("NVIDIA_EMBEDDING_TIMEOUT_SECONDS", "60")
             ),
             max_attempts=int(os.getenv("PROVIDER_MAX_ATTEMPTS", "2")),
+            session=session,
+            metrics=metrics,
         )
 
     @property
@@ -113,6 +124,7 @@ class NvidiaNemotronEmbeddings(Embeddings):
                 **prompt_log_fields(payload),
             },
         )
+        started = perf_counter()
 
         def send_request() -> requests.Response:
             response = self.session.post(
@@ -137,26 +149,92 @@ class NvidiaNemotronEmbeddings(Embeddings):
             body = response.json()
             raw_data = body["data"]
         except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
+            duration_seconds = perf_counter() - started
+            self.metrics.provider_call(
+                provider="nvidia",
+                operation="query_embedding" if input_type == "query" else "passage_embedding",
+                status="error",
+                duration_seconds=duration_seconds,
+            )
+            logger.exception(
+                "model.response.failed",
+                extra={
+                    "stage": "embed_gita_retrieval",
+                    "provider": "nvidia",
+                    "model": self.model,
+                    "input_type": input_type,
+                    "batch_size": len(normalized),
+                    "duration_ms": round(duration_seconds * 1000, 2),
+                },
+            )
             raise NvidiaEmbeddingError(
                 f"NVIDIA embedding request failed: {exc}"
             ) from exc
-        if not isinstance(raw_data, list) or len(raw_data) != len(normalized):
-            raise NvidiaEmbeddingError("NVIDIA returned the wrong embedding count")
+        try:
+            if not isinstance(raw_data, list) or len(raw_data) != len(normalized):
+                raise NvidiaEmbeddingError("NVIDIA returned the wrong embedding count")
 
-        ordered = sorted(raw_data, key=lambda item: item.get("index", -1))
-        vectors: list[list[float]] = []
-        for expected_index, item in enumerate(ordered):
-            if not isinstance(item, dict) or item.get("index") != expected_index:
-                raise NvidiaEmbeddingError("NVIDIA returned invalid embedding indexes")
-            vector = item.get("embedding")
-            if not isinstance(vector, list) or len(vector) != NEMOTRON_EMBEDDING_DIMENSIONS:
-                raise NvidiaEmbeddingError(
-                    "NVIDIA returned an unexpected embedding dimension"
-                )
-            resolved = [float(value) for value in vector]
-            if not all(math.isfinite(value) for value in resolved):
-                raise NvidiaEmbeddingError("NVIDIA returned a non-finite embedding")
-            vectors.append(resolved)
+            ordered = sorted(raw_data, key=lambda item: item.get("index", -1))
+            vectors: list[list[float]] = []
+            for expected_index, item in enumerate(ordered):
+                if not isinstance(item, dict) or item.get("index") != expected_index:
+                    raise NvidiaEmbeddingError("NVIDIA returned invalid embedding indexes")
+                vector = item.get("embedding")
+                if not isinstance(vector, list) or len(vector) != NEMOTRON_EMBEDDING_DIMENSIONS:
+                    raise NvidiaEmbeddingError(
+                        "NVIDIA returned an unexpected embedding dimension"
+                    )
+                resolved = [float(value) for value in vector]
+                if not all(math.isfinite(value) for value in resolved):
+                    raise NvidiaEmbeddingError("NVIDIA returned a non-finite embedding")
+                vectors.append(resolved)
+        except (NvidiaEmbeddingError, TypeError, ValueError) as exc:
+            duration_seconds = perf_counter() - started
+            self.metrics.provider_call(
+                provider="nvidia",
+                operation="query_embedding" if input_type == "query" else "passage_embedding",
+                status="error",
+                duration_seconds=duration_seconds,
+            )
+            logger.warning(
+                "model.response.invalid",
+                extra={
+                    "stage": "embed_gita_retrieval",
+                    "provider": "nvidia",
+                    "model": self.model,
+                    "input_type": input_type,
+                    "error_type": type(exc).__name__,
+                    "duration_ms": round(duration_seconds * 1000, 2),
+                },
+            )
+            if isinstance(exc, NvidiaEmbeddingError):
+                raise
+            raise NvidiaEmbeddingError("NVIDIA returned an invalid embedding") from exc
+        duration_seconds = perf_counter() - started
+        provider_request_id = (
+            body.get("id")
+            or response.headers.get("x-request-id")
+            or response.headers.get("nvcf-reqid")
+        )
+        self.metrics.provider_call(
+            provider="nvidia",
+            operation="query_embedding" if input_type == "query" else "passage_embedding",
+            status="success",
+            duration_seconds=duration_seconds,
+        )
+        logger.info(
+            "model.response.received",
+            extra={
+                "stage": "embed_gita_retrieval",
+                "provider": "nvidia",
+                "model": self.model,
+                "provider_request_id": provider_request_id,
+                "input_type": input_type,
+                "embedding_count": len(vectors),
+                "embedding_dimensions": NEMOTRON_EMBEDDING_DIMENSIONS,
+                "duration_ms": round(duration_seconds * 1000, 2),
+            },
+        )
         return vectors
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:

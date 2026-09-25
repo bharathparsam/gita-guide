@@ -3,6 +3,7 @@ python-dotenv>=1.0,<2
 requests>=2.32,<3
 langchain>=1.0,<2
 langsmith>=0.4,<1
+langchain-nvidia-ai-endpoints>=1.4.3,<2
 fastapi>=0.115,<1
 uvicorn[standard]>=0.34,<1
 redis>=6,<7

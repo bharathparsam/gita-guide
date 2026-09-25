@@ -8,9 +8,10 @@ from app.retrieval.gita_vector_retriever import GitaVectorRetriever
 from app.retrieval.nvidia_embeddings import NvidiaNemotronEmbeddings
 
 
-DEFAULT_CHUNKS_PATH = Path("data/processed/gita_chunks.jsonl")
-DEFAULT_EMBEDDINGS_PATH = Path("data/processed/gita_embeddings.npy")
-DEFAULT_METADATA_PATH = Path("data/processed/gita_embeddings.metadata.json")
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CHUNKS_PATH = _PROJECT_ROOT / "data/processed/gita_chunks.jsonl"
+DEFAULT_EMBEDDINGS_PATH = _PROJECT_ROOT / "data/processed/gita_embeddings.npy"
+DEFAULT_METADATA_PATH = _PROJECT_ROOT / "data/processed/gita_embeddings.metadata.json"
 
 
 def build_local_gita_retriever(

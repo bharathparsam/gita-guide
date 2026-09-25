@@ -58,6 +58,9 @@ class JsonFormatter(logging.Formatter):
         for key, value in record.__dict__.items():
             if key not in _STANDARD_LOG_RECORD_FIELDS and not key.startswith("_"):
                 payload[key] = value
+        contextual_request_id = current_request_id()
+        if contextual_request_id is not None and "request_id" not in payload:
+            payload["request_id"] = contextual_request_id
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, default=str, separators=(",", ":"))

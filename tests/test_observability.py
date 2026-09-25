@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -9,6 +10,7 @@ import pytest
 from app.observability.audit import AuditEvent, InMemoryAuditSink, JsonlAuditSink
 from app.observability.fingerprint import PromptFingerprinter
 from app.observability.metrics import InMemoryMetricSink, MetricKey, PhaseOneMetrics
+from app.observability.logging import JsonFormatter, request_logging_context
 
 
 def test_prompt_fingerprint_is_deterministic_keyed_and_log_safe() -> None:
@@ -126,10 +128,32 @@ def test_phase_one_metrics_use_prometheus_names_and_bounded_labels() -> None:
         status="success",
         duration_seconds=0.1,
     )
+    metrics.retrieval_completed(
+        source="cache",
+        result_count=5,
+        duration_seconds=0.02,
+    )
+    metrics.retrieval_validation(
+        status="passed",
+        accepted_count=4,
+        rejected_count=1,
+    )
     metrics.request_finished(status="completed", duration_seconds=0.125)
 
     assert sink.counters[
         MetricKey("gita_guide_phase_one_requests_started_total", ())
+    ] == 1
+    assert sink.counters[
+        MetricKey(
+            "gita_guide_retrieval_validation_chunks_total",
+            (("decision", "accepted"),),
+        )
+    ] == 4
+    assert sink.counters[
+        MetricKey(
+            "gita_guide_retrieval_requests_total",
+            (("source", "cache"),),
+        )
     ] == 1
     assert sink.counters[
         MetricKey(
@@ -149,6 +173,24 @@ def test_phase_one_metrics_use_prometheus_names_and_bounded_labels() -> None:
             (("cache", "classification"), ("result", "miss")),
         )
     ] == 1
+
+
+def test_json_formatter_injects_request_context_for_nested_provider_logs() -> None:
+    formatter = JsonFormatter()
+    record = logging.LogRecord(
+        name="gita_guide.provider",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="model.response.received",
+        args=(),
+        exc_info=None,
+    )
+
+    with request_logging_context("request-correlated"):
+        payload = json.loads(formatter.format(record))
+
+    assert payload["request_id"] == "request-correlated"
 
 
 def test_metrics_reject_unbounded_or_invalid_shapes() -> None:

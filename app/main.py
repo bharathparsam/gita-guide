@@ -9,6 +9,10 @@ from app.guardrails.input_safety import (
     InputSafetyRejection,
 )
 from app.observability.logging import configure_logging
+from app.retrieval.nvidia_embeddings import NvidiaEmbeddingError
+from app.retrieval.jev_relevance_validator import RetrievalValidationError
+from app.services.retrieval_service import RetrievalNotEligible
+from app.services.generation_service import GenerationError, GenerationNotReadyError
 
 
 def main() -> int:
@@ -16,9 +20,13 @@ def main() -> int:
     message = input("Tell me what you're going through: ")
     service = None
 
+    request_id = str(uuid4())
     try:
         service = build_phase_one_service()
-        result = service.classify(message, request_id=str(uuid4()))
+        response = service.guide(
+            message,
+            request_id=request_id,
+        )
     except InputSafetyEscalation:
         print(
             "\nYour safety matters more than this classification. "
@@ -29,15 +37,28 @@ def main() -> int:
     except InputSafetyRejection as exc:
         print(f"\nYour message cannot be processed: {exc}")
         return 2
-    except (ClassificationError, GuardrailUnavailableError, ValueError) as exc:
-        print(f"\nCould not classify your message: {exc}")
+    except RetrievalNotEligible as exc:
+        print(f"\nRetrieval was not run: {exc}")
+        return 2
+    except (
+        ClassificationError,
+        GuardrailUnavailableError,
+        NvidiaEmbeddingError,
+        RetrievalValidationError,
+        GenerationError,
+        GenerationNotReadyError,
+        ValueError,
+    ) as exc:
+        print(f"\nCould not process your message: {exc}")
         return 1
     finally:
         if service is not None:
             service.close()
 
-    print("\nClassification:")
-    print(result.model_dump_json(indent=2))
+    print("\nGuidance:")
+    print(response.guidance)
+    print("\nCitations:")
+    print(", ".join(response.citations))
     return 0
 
 

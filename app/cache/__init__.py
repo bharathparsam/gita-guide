@@ -20,7 +20,9 @@ from app.cache.idempotency import (
 from app.cache.keys import (
     ClassificationCacheKeyContext,
     HmacCacheKeyBuilder,
+    RetrievalCacheKeyContext,
 )
+from app.cache.retrieval import CachedRetrieval, CachedRetrievalItem, RetrievalCache
 from app.cache.singleflight import SingleFlight, SingleFlightResult
 
 __all__ = [
@@ -29,7 +31,11 @@ __all__ = [
     "ClassificationCache",
     "ClassificationCacheKeyContext",
     "ClassificationCachePolicy",
+    "CachedRetrieval",
+    "CachedRetrievalItem",
     "HmacCacheKeyBuilder",
+    "RetrievalCache",
+    "RetrievalCacheKeyContext",
     "IdempotencyClaim",
     "IdempotencyConflict",
     "IdempotencyRecord",

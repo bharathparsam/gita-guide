@@ -1,9 +1,9 @@
 # Gita Guide
 
 Gita Guide is an early-stage Python application for giving source-grounded,
-reflective guidance inspired by the Bhagavad Gita. It first applies input safety
-checks, classifies the user's situation and emotional state, and will retrieve
-relevant verses before generating guidance.
+reflective guidance inspired by the Bhagavad Gita. It applies input safety,
+classifies the user's situation and emotional state, retrieves and validates
+relevant verses, and generates citation-checked guidance.
 
 The current version accepts messages through a CLI or authenticated HTTP API and uses
 [JEV](https://openrouter.ai/typesafe/jev-1.13) through OpenRouter's Decisions API
@@ -14,19 +14,23 @@ to identify:
 - The primary emotion
 - The underlying inner conflict
 
-The classification, evaluation, safety boundary, cache, audit, metrics, and
-source-corpus foundations are implemented. The vector-retrieval component is
-implemented separately; retrieval-quality evaluation and final grounded guidance
-remain the next product layer.
+The classification, evaluation, safety boundary, cache, audit, metrics, source
+corpus, retrieval, and grounded-generation foundations are implemented. The CLI
+continues through filtered and reranked local retrieval, validates up to five
+passages in one OpenRouter/JEV decision, and sends only approved passages to the
+NVIDIA generation model. The public HTTP endpoint intentionally remains
+classification-only until retrieval and answer-quality eval gates are established.
 
 Phase 1 is implemented as a LangChain pipeline with correlated JSON logs and
-optional LangSmith tracing.
+optional LangSmith tracing. In the CLI, classification and retrieval run beneath
+one parent trace; the request ID also correlates every nested application log,
+audit event, cache event, and provider call.
 
 ## Requirements
 
 - Python 3.10 or newer
 - An [OpenRouter](https://openrouter.ai/) API key with access to JEV
-- Optional: an NVIDIA API key for its hosted Nemotron content-safety endpoint
+- An NVIDIA API key for hosted Nemotron embeddings and end-to-end guidance
 - Optional: a LangSmith API key for hosted LangChain traces
 
 ## Setup
@@ -66,7 +70,9 @@ Enter a personal situation when prompted:
 Tell me what you're going through: I worked hard but failed my interview and now I feel useless.
 ```
 
-The application returns a structured classification similar to:
+The CLI prints grounded guidance followed by the citations it used. The
+underlying classification returned by the HTTP classification endpoint is
+structured like this:
 
 ```json
 {
@@ -118,7 +124,7 @@ same API-key authentication policy as classification.
 User message
     |
     v
-LangChain Phase 1 pipeline (one correlated trace)
+LangChain pipeline (correlated by one request ID)
     |
     +--> Input normalization and validation
     |
@@ -133,8 +139,17 @@ LangChain Phase 1 pipeline (one correlated trace)
     v
 ClassificationResult
     |
+    +--> Krishna/source pre-filter -> 20 dense candidates
+    |       -> score post-filter -> MMR diversity rerank
+    |       -> one batched OpenRouter/JEV relevance decision
+    |       -> validated retrieval cache -> up to 5 grounding passages
     v
-Verse retrieval and grounded guidance (next phase)
+NVIDIA grounded guidance generation
+    |
+    +--> deterministic citation allow-list
+    +--> NVIDIA output-safety rail
+    v
+GuidanceResponse
 ```
 
 JEV receives the message and four typed questions in one request. It uses a
@@ -146,9 +161,10 @@ Safety runs before every cache lookup and before JEV, so cached results cannot
 bypass the current safety policy. Self-harm indicators use a separate escalation
 route and are not treated as profanity.
 
-The pipeline is composed from LangChain `RunnableLambda` stages. The safety and
-classification implementations remain ordinary Python services, so they can be
-unit tested without calling LangSmith or an external provider.
+The pipeline is composed from LangChain stages and the NVIDIA model is accessed
+through LangChain's `ChatNVIDIA` adapter. The safety, classification, retrieval,
+validation, and generation implementations remain ordinary Python services, so
+they can be unit tested without calling LangSmith or an external provider.
 
 ## Logging and LangSmith traces
 
@@ -175,14 +191,16 @@ To send the LangChain execution tree to LangSmith, configure:
 ```dotenv
 LANGSMITH_TRACING=true
 LANGSMITH_API_KEY=your_langsmith_key
-LANGSMITH_PROJECT=gita-guide-phase-1
+LANGSMITH_PROJECT=gita-guide
 ```
 
-The LangSmith trace contains the parent Phase 1 run and separate input-validation,
-guardrail, and JEV-classification spans. LangChain passes step inputs and outputs
-to the tracer, so keep tracing disabled for sensitive production traffic until an
-approved data-handling policy is in place. Application logging continues to work
-when LangSmith is disabled or unavailable.
+The LangSmith trace contains named validation, guardrail, JEV-classification,
+retrieval, post-retrieval JEV-validation, and generation runs. The application
+request ID is included as trace metadata and correlates those runs with logs,
+audit events, cache activity, and provider request IDs. LangChain passes step
+inputs and outputs to the tracer, so keep tracing disabled for sensitive
+production traffic until an approved data-handling policy is in place.
+Application logging continues to work when LangSmith is disabled or unavailable.
 
 LangSmith is the model-development trace, not the authoritative audit store. The
 service also writes versioned, append-only, prompt-free audit records to
@@ -215,6 +233,16 @@ identical cache misses are coalesced within a worker,
 and shared Redis idempotency claims use atomic ownership checks. Provider errors are
 never cached.
 
+Retrieval uses the same backend under a separate `retrieval:v1` HMAC namespace.
+Its six-hour value contains only JEV-approved chunk IDs, scores, ranks, and
+validation metadata; the public-domain
+verse text is rehydrated from the bundled corpus. The query, verse text, and
+embedding vectors are not Redis values. Corpus checksum, embedding model,
+candidate count, score floor, speaker/source filters, and reranker settings are
+part of the cache key. The JEV model, validator prompt version, and acceptance
+threshold are included too, so any decision-changing revision creates a clean
+cache generation automatically.
+
 Production mode fails startup when API authentication, shared Redis caching, the
 NVIDIA fail-closed policy, durable audit output, or HMAC fingerprint secrets are
 missing. This prevents development defaults from being deployed accidentally.
@@ -229,18 +257,19 @@ app/
 │   ├── jev_classifier.py       # OpenRouter request and response validation
 │   └── taxonomy.py             # Supported classification labels
 ├── guardrails/
-│   └── input_safety.py         # Local and NVIDIA input-safety rails
+│   └── input_safety.py         # Local and NVIDIA input/output safety rails
 ├── models/
-│   └── classification.py       # Structured result model
+│   ├── classification.py       # Structured classification result
+│   ├── retrieval.py            # Grounding passage/result contracts
+│   └── generation.py           # Fail-closed generation contracts
 ├── observability/
 │   ├── audit.py                # Append-only audit sink contract
 │   ├── logging.py              # Correlated structured JSON logs
 │   ├── metrics.py              # Low-cardinality metric contract
 │   └── prometheus.py           # Prometheus adapter
 ├── reliability/                # Retry and circuit-breaker primitives
-├── retrieval/                  # Verified vector retrieval LangChain stage
-├── services/
-│   └── classification_service.py # LangChain Phase 1 pipeline
+├── retrieval/                  # Vector search and OpenRouter/JEV validation
+├── services/                   # Classification, retrieval, and generation stages
 ├── config.py                   # Environment configuration
 └── main.py                     # CLI entry point
 evals/
@@ -253,7 +282,9 @@ data/
 └── sources.json                # Source license, URL, and checksum
 scripts/
 ├── ingest_gita_pdf.py          # Validated PDF-to-chunk pipeline
-└── embed_gita_chunks.py        # Optional multilingual embedding build
+├── embed_gita_chunks.py        # Optional multilingual embedding build
+├── check_jev_retrieval_validation.py
+└── check_grounded_guidance.py  # Full live synthetic smoke test
 tests/
 ├── test_classifier.py          # Mocked classifier and safety tests
 ├── test_evaluation_dataset.py  # Evaluation-data contract checks
@@ -406,8 +437,31 @@ similarity score for later citations. At runtime, NVIDIA creates only the query
 embedding with `input_type=query`; cosine ranking then runs locally over all 671
 vectors. The retrieval stage combines the original message with Phase 1 situation,
 emotion, and root-conflict labels. It is not yet connected to the public
-classification endpoint because retrieval
-relevance thresholds must first be evaluated against a labeled dataset.
+classification endpoint because retrieval relevance thresholds must first be
+evaluated against a labeled dataset. The interactive CLI does execute the stage
+so it can be tested end to end before the grounded-answer endpoint is released.
+
+The retrieval pipeline first allows only the approved source and passages spoken
+by "The Blessed Lord," retrieves 20 dense candidates, applies a configurable
+similarity floor, and reranks with maximal marginal relevance. It limits any one
+chapter to two selected passages and returns at most five. It never fills missing
+slots with passages that failed the relevance filter.
+
+The five reranked passages are then evaluated in one JEV Decisions request. Each
+receives a typed relevance probability and only passages meeting
+`RETRIEVAL_VALIDATION_THRESHOLD` survive. The result exposes
+`ready_for_generation`; an unavailable/invalid validator fails closed, and a
+result with no approved passages prevents the LLM layer from running.
+The typed `GroundedGenerationInput` boundary accepts only results marked ready and
+rechecks every passage against the recorded JEV threshold before any LLM adapter
+can be called.
+
+The generator sends the user message, typed classification, and only the approved
+passages to NVIDIA Nemotron through LangChain. Its response must cite at least one
+of those exact passages; unsupported citations fail closed. The generated text is
+then checked by the NVIDIA content-safety model before it is returned. This is a
+grounding boundary, not yet a complete factual-faithfulness guarantee; a labeled
+answer-faithfulness evaluation remains a release gate.
 
 Run a direct retrieval smoke test with:
 
@@ -416,6 +470,29 @@ python -m scripts.search_gita \
   "I am anxious that my work will not produce the result I want" \
   --top-k 5
 ```
+
+Verify the live OpenRouter/JEV post-retrieval validator with two synthetic,
+public-corpus candidates:
+
+```bash
+python -m scripts.check_jev_retrieval_validation
+```
+
+This makes one live Decisions API request. It prints only chunk IDs, relevance
+probabilities, the resolved model, and the provider request ID; it never prints
+the API key, user text, or verse text. The command succeeds only when JEV accepts
+the result-anxiety passage and rejects the deliberately unrelated ceremonial passage.
+
+Run the complete live CLI service path with a synthetic message:
+
+```bash
+python -m scripts.check_grounded_guidance
+```
+
+This calls the configured NVIDIA input rail, OpenRouter/JEV classifier, NVIDIA
+query embedding, OpenRouter/JEV retrieval validator, NVIDIA generator, and NVIDIA
+output rail. With Upstash enabled it also exercises the shared classification and
+retrieval caches. It makes live provider requests and may consume trial quota.
 
 ## Live JEV check
 
@@ -450,17 +527,27 @@ Implemented:
 - NVIDIA Nemotron embedding client with query/passage separation
 - Bundled, memory-mapped 671-row embedding matrix with checksum metadata
 - Provenance-checked LangChain local vector retriever with citation metadata
+- Krishna/source pre-filter, score post-filter, and deterministic MMR reranking
+- Up-to-five bounded grounding context with chapter diversity
+- HMAC-keyed Redis retrieval cache storing chunk references rather than verse text
+- Batched JEV post-retrieval validation with a fail-closed generation gate
+- LangChain `ChatNVIDIA` grounded generation using only JEV-approved passages
+- Deterministic citation allow-list and NVIDIA post-generation safety rail
+- Correlated retrieval/cache/reranking/provider logs and LangSmith stage spans
 - Unit, concurrency, failure, API, cache, audit, metrics, and corpus tests
 
 Next:
 
 - Retrieval relevance dataset and quality gates
-- A mapping layer from classification dimensions to Gita themes
-- Grounded response generation that quotes only retrieved verses
-- NVIDIA output and retrieval rails in addition to the input rail
+- Tune the retrieval score floor and reranker settings from the labeled dataset
+- A mapping layer from classification dimensions to Gita themes, if evaluation
+  shows that query enrichment alone is insufficient
+- Retrieval and answer-faithfulness datasets with release quality gates
+- A dedicated semantic output-grounding judge in addition to citation validation
 - Distributed load/soak testing, deployment alerts, rate limits, and production deployment
 
 The architecture and production-readiness gates are documented in
-`docs/architecture/phase-1.md`. Passing the local suite does not by itself declare
+`docs/architecture/phase-1.md`, `docs/architecture/retrieval.md`, and
+`docs/architecture/generation.md`. Passing the local suite does not by itself declare
 the system production-ready; Redis, provider, alerting, security, privacy, and
 load gates must also pass in the target environment.

@@ -218,3 +218,39 @@ class PhaseOneMetrics:
         }
         self._sink.increment("provider_calls_total", labels=labels)
         self._sink.observe("provider_call_duration_seconds", duration_seconds, labels=labels)
+
+    def retrieval_completed(
+        self,
+        *,
+        source: str,
+        result_count: int,
+        duration_seconds: float,
+    ) -> None:
+        if source not in {"retriever", "cache", "singleflight"}:
+            raise ValueError(f"Unsupported retrieval source: {source!r}")
+        labels = {"source": source}
+        self._sink.increment("retrieval_requests_total", labels=labels)
+        self._sink.observe("retrieval_duration_seconds", duration_seconds, labels=labels)
+        self._sink.observe("retrieval_result_count", float(result_count), labels=labels)
+
+    def retrieval_validation(
+        self,
+        *,
+        status: str,
+        accepted_count: int,
+        rejected_count: int,
+    ) -> None:
+        if status not in {"passed", "no_valid_chunks"}:
+            raise ValueError(f"Unsupported retrieval validation status: {status!r}")
+        labels = {"status": status}
+        self._sink.increment("retrieval_validations_total", labels=labels)
+        self._sink.increment(
+            "retrieval_validation_chunks_total",
+            value=float(accepted_count),
+            labels={"decision": "accepted"},
+        )
+        self._sink.increment(
+            "retrieval_validation_chunks_total",
+            value=float(rejected_count),
+            labels={"decision": "rejected"},
+        )

@@ -114,6 +114,27 @@ class NvidiaSafetyGuardrail:
         self.metrics = metrics or PhaseOneMetrics(NoOpMetricSink())
 
     def check(self, message: str) -> GuardrailDecision:
+        return self._check(
+            message,
+            stage="nvidia_input_guardrail",
+            operation="input_guardrail",
+        )
+
+    def check_output(self, message: str) -> GuardrailDecision:
+        """Apply the same hosted safety policy to generated model output."""
+        return self._check(
+            message,
+            stage="nvidia_output_guardrail",
+            operation="output_guardrail",
+        )
+
+    def _check(
+        self,
+        message: str,
+        *,
+        stage: str,
+        operation: str,
+    ) -> GuardrailDecision:
         if not self.settings.nvidia_guardrail_url:
             if self.settings.nvidia_guardrail_required:
                 raise GuardrailUnavailableError(
@@ -135,7 +156,7 @@ class NvidiaSafetyGuardrail:
             "model.prompt.prepared",
             extra={
                 "request_id": current_request_id(),
-                "stage": "nvidia_input_guardrail",
+                "stage": stage,
                 "provider": "nvidia",
                 "model": self.settings.nvidia_guardrail_model,
                 "prompt_kind": "content_safety",
@@ -187,7 +208,7 @@ class NvidiaSafetyGuardrail:
         finally:
             self.metrics.provider_call(
                 provider="nvidia",
-                operation="input_guardrail",
+                operation=operation,
                 status=provider_status,
                 duration_seconds=perf_counter() - provider_started,
             )

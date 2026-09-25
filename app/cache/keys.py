@@ -49,6 +49,56 @@ class ClassificationCacheKeyContext:
                 raise ValueError(f"{name} must be between 0 and 1")
 
 
+@dataclass(frozen=True, slots=True)
+class RetrievalCacheKeyContext:
+    """Every version and policy input capable of changing retrieved chunks."""
+
+    tenant_id: str
+    embedding_model: str
+    corpus_sha256: str
+    pipeline_version: str
+    reranker_version: str
+    validator_model: str
+    validator_prompt_version: str
+    validator_threshold: float
+    candidate_k: int
+    top_k: int
+    minimum_score: float
+    mmr_lambda: float
+    max_per_chapter: int
+    allowed_source_ids: tuple[str, ...]
+    allowed_speakers: tuple[str, ...]
+    key_version: str = "v1"
+
+    def __post_init__(self) -> None:
+        for name in (
+            "tenant_id",
+            "embedding_model",
+            "corpus_sha256",
+            "pipeline_version",
+            "reranker_version",
+            "validator_model",
+            "validator_prompt_version",
+            "key_version",
+        ):
+            if not getattr(self, name).strip():
+                raise ValueError(f"{name} cannot be empty")
+        if self.candidate_k < 1 or self.top_k < 1 or self.top_k > 5:
+            raise ValueError("candidate_k and top_k must be positive and top_k cannot exceed 5")
+        if self.candidate_k < self.top_k:
+            raise ValueError("candidate_k must be at least top_k")
+        if not -1 <= self.minimum_score <= 1:
+            raise ValueError("minimum_score must be between -1 and 1")
+        if not 0 <= self.mmr_lambda <= 1:
+            raise ValueError("mmr_lambda must be between 0 and 1")
+        if not 0 <= self.validator_threshold <= 1:
+            raise ValueError("validator_threshold must be between 0 and 1")
+        if self.max_per_chapter < 1:
+            raise ValueError("max_per_chapter must be at least 1")
+        if not self.allowed_source_ids or not self.allowed_speakers:
+            raise ValueError("retrieval source and speaker allowlists cannot be empty")
+
+
 class HmacCacheKeyBuilder:
     """Creates opaque, deterministic keys without exposing sensitive input text."""
 
@@ -77,6 +127,13 @@ class HmacCacheKeyBuilder:
             "message": normalize_message(message),
         }
         return f"classification:{context.key_version}:{self._digest(payload)}"
+
+    def retrieval_key(self, query: str, context: RetrievalCacheKeyContext) -> str:
+        payload = {
+            "context": asdict(context),
+            "query": normalize_message(query),
+        }
+        return f"retrieval:{context.key_version}:{self._digest(payload)}"
 
     def idempotency_key(self, *, tenant_id: str, client_key: str) -> str:
         if not tenant_id.strip() or not client_key.strip():

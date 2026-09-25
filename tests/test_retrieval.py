@@ -126,8 +126,8 @@ def test_retrieval_chain_uses_phase_one_classification(tmp_path: Path) -> None:
     )
 
     assert output["documents"][0].metadata["chapter"] == 2
-    assert "Primary situation: outcome_anxiety" in output["retrieval_query"]
-    assert "Root conflict: attachment_to_results" in build_classification_query(
+    assert "Primary situation: outcome anxiety" in output["retrieval_query"]
+    assert "Root conflict: attachment to results" in build_classification_query(
         "I fear failing", classification()
     )
 
