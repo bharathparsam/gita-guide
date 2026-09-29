@@ -6,6 +6,11 @@ Phase 1 accepts one user message, validates it, applies local and NVIDIA input
 safety, and classifies it with JEV. Retrieval and response generation are separate
 stages and cannot weaken this boundary.
 
+JEV produces four complementary classification dimensions: broad situation, primary
+emotion, root conflict, and one fine-grained `primary_trait` from the versioned Gita
+trait catalog. Keeping the trait separate avoids treating virtues, emotions, habits,
+and life events as though they were the same semantic type.
+
 ## Request flow
 
 ```text

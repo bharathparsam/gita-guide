@@ -1,0 +1,203 @@
+{
+  "schema_version": "1.0",
+  "kind": "retrieval",
+  "corpus_id": "bhagavad-gita-as-it-is",
+  "annotation": {
+    "method": "manually curated against the bundled Bhagavad-gita As It Is corpus",
+    "status": "seed-reviewed",
+    "policy": "Each relevant set contains interchangeable passages that directly ground the scenario; production release still requires named domain-expert sign-off."
+  },
+  "cases": [
+    {
+      "id": "outcome_anxiety_interview",
+      "message": "I did my best in an interview, but I cannot stop worrying because the result is outside my control.",
+      "relevant_chunk_ids": [
+        "bhagavad-gita-as-it-is:02:040-040:translation:001",
+        "bhagavad-gita-as-it-is:02:047-047:translation:001",
+        "bhagavad-gita-as-it-is:02:048-048:translation:001",
+        "bhagavad-gita-as-it-is:02:049-049:translation:001"
+      ],
+      "minimum_relevant_hits": 1,
+      "tags": [
+        "outcome-anxiety",
+        "career"
+      ]
+    },
+    {
+      "id": "anger_after_insult",
+      "message": "A colleague humiliated me and I keep replaying angry thoughts about revenge.",
+      "relevant_chunk_ids": [
+        "bhagavad-gita-as-it-is:02:062-062:translation:001",
+        "bhagavad-gita-as-it-is:02:063-063:translation:001",
+        "bhagavad-gita-as-it-is:02:056-056:translation:001",
+        "bhagavad-gita-as-it-is:12:013-014:translation:001",
+        "bhagavad-gita-as-it-is:16:001-003:translation:001",
+        "bhagavad-gita-as-it-is:16:021-021:translation:001",
+        "bhagavad-gita-as-it-is:17:015-015:translation:001",
+        "bhagavad-gita-as-it-is:17:016-016:translation:001"
+      ],
+      "minimum_relevant_hits": 1,
+      "tags": [
+        "anger",
+        "work"
+      ]
+    },
+    {
+      "id": "anger_act_well",
+      "message": "How can I act well when I feel angry?",
+      "relevant_chunk_ids": [
+        "bhagavad-gita-as-it-is:02:063-063:translation:001",
+        "bhagavad-gita-as-it-is:02:064-064:translation:001",
+        "bhagavad-gita-as-it-is:12:013-014:translation:001",
+        "bhagavad-gita-as-it-is:13:008-012:translation:001",
+        "bhagavad-gita-as-it-is:16:001-003:translation:001",
+        "bhagavad-gita-as-it-is:17:015-015:translation:001",
+        "bhagavad-gita-as-it-is:17:016-016:translation:001"
+      ],
+      "minimum_relevant_hits": 2,
+      "tags": [
+        "anger",
+        "conduct",
+        "helpfulness-regression"
+      ]
+    },
+    {
+      "id": "wandering_mind_study",
+      "message": "Every time I try to study, my mind wanders and I feel frustrated that I cannot focus.",
+      "relevant_chunk_ids": [
+        "bhagavad-gita-as-it-is:02:064-064:translation:001",
+        "bhagavad-gita-as-it-is:06:005-005:translation:001",
+        "bhagavad-gita-as-it-is:06:006-006:translation:001",
+        "bhagavad-gita-as-it-is:06:018-018:translation:001",
+        "bhagavad-gita-as-it-is:06:026-026:translation:001",
+        "bhagavad-gita-as-it-is:06:035-035:translation:001",
+        "bhagavad-gita-as-it-is:06:036-036:translation:001"
+      ],
+      "minimum_relevant_hits": 1,
+      "tags": [
+        "discipline",
+        "focus"
+      ]
+    },
+    {
+      "id": "comparison_career",
+      "message": "Everyone around me is advancing faster and comparing myself with them makes me feel worthless.",
+      "relevant_chunk_ids": [
+        "bhagavad-gita-as-it-is:02:071-071:translation:001",
+        "bhagavad-gita-as-it-is:03:035-035:translation:001",
+        "bhagavad-gita-as-it-is:04:022-022:translation:001",
+        "bhagavad-gita-as-it-is:12:015-015:translation:001",
+        "bhagavad-gita-as-it-is:18:047-047:translation:001"
+      ],
+      "minimum_relevant_hits": 1,
+      "tags": [
+        "comparison",
+        "career"
+      ]
+    },
+    {
+      "id": "procrastination_inaction",
+      "message": "I am afraid my work will be imperfect, so I keep delaying and do nothing.",
+      "relevant_chunk_ids": [
+        "bhagavad-gita-as-it-is:02:040-040:translation:001",
+        "bhagavad-gita-as-it-is:02:047-047:translation:001",
+        "bhagavad-gita-as-it-is:02:048-048:translation:001",
+        "bhagavad-gita-as-it-is:03:004-004:translation:001",
+        "bhagavad-gita-as-it-is:03:008-008:translation:001",
+        "bhagavad-gita-as-it-is:03:019-019:translation:001",
+        "bhagavad-gita-as-it-is:03:035-035:translation:001",
+        "bhagavad-gita-as-it-is:18:008-008:translation:001"
+      ],
+      "minimum_relevant_hits": 1,
+      "tags": [
+        "motivation",
+        "inaction"
+      ]
+    },
+    {
+      "id": "self_control_craving",
+      "message": "I repeatedly give in to cravings even after promising myself I will stop.",
+      "relevant_chunk_ids": [
+        "bhagavad-gita-as-it-is:02:062-062:translation:001",
+        "bhagavad-gita-as-it-is:02:064-064:translation:001",
+        "bhagavad-gita-as-it-is:03:037-037:translation:001",
+        "bhagavad-gita-as-it-is:03:043-043:translation:001",
+        "bhagavad-gita-as-it-is:06:006-006:translation:001"
+      ],
+      "minimum_relevant_hits": 1,
+      "tags": [
+        "discipline",
+        "desire"
+      ]
+    },
+    {
+      "id": "relationship_compassion",
+      "message": "During arguments with my spouse, my anger and pride take over. I want to listen with patience and compassion instead of trying to win.",
+      "relevant_chunk_ids": [
+        "bhagavad-gita-as-it-is:12:013-014:translation:001",
+        "bhagavad-gita-as-it-is:12:015-015:translation:001",
+        "bhagavad-gita-as-it-is:02:056-056:translation:001",
+        "bhagavad-gita-as-it-is:02:064-064:translation:001"
+      ],
+      "minimum_relevant_hits": 1,
+      "tags": [
+        "relationship",
+        "compassion"
+      ]
+    },
+    {
+      "id": "adversity_steadiness",
+      "message": "A serious setback has shaken me and I want to regain steadiness without denying the pain.",
+      "relevant_chunk_ids": [
+        "bhagavad-gita-as-it-is:02:056-056:translation:001",
+        "bhagavad-gita-as-it-is:02:065-065:translation:001",
+        "bhagavad-gita-as-it-is:02:048-048:translation:001",
+        "bhagavad-gita-as-it-is:12:015-015:translation:001"
+      ],
+      "minimum_relevant_hits": 1,
+      "tags": [
+        "adversity",
+        "steadiness"
+      ]
+    },
+    {
+      "id": "purpose_without_caste_assignment",
+      "message": "I feel lost about my purpose and want to understand how to choose meaningful work without comparing my path to someone else's.",
+      "relevant_chunk_ids": [
+        "bhagavad-gita-as-it-is:03:035-035:translation:001",
+        "bhagavad-gita-as-it-is:18:045-045:translation:001",
+        "bhagavad-gita-as-it-is:18:046-046:translation:001",
+        "bhagavad-gita-as-it-is:18:047-047:translation:001"
+      ],
+      "forbidden_chunk_ids": [
+        "bhagavad-gita-as-it-is:18:044-044:translation:001"
+      ],
+      "minimum_relevant_hits": 1,
+      "tags": [
+        "purpose",
+        "work",
+        "retrieval-regression"
+      ]
+    },
+    {
+      "id": "technical_out_of_scope",
+      "message": "Write a Python function to merge two sorted arrays.",
+      "expect_abstention": true,
+      "relevant_chunk_ids": [],
+      "tags": [
+        "out-of-scope",
+        "abstention"
+      ]
+    },
+    {
+      "id": "weather_out_of_scope",
+      "message": "Will it rain in Hyderabad tomorrow afternoon?",
+      "expect_abstention": true,
+      "relevant_chunk_ids": [],
+      "tags": [
+        "out-of-scope",
+        "abstention"
+      ]
+    }
+  ]
+}

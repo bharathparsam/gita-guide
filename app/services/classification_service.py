@@ -31,6 +31,7 @@ logger = get_logger("phase_one")
 
 class PhaseOneState(TypedDict, total=False):
     message: str
+    retrieval_message: str
     request_id: str
     safety_provider: str
     classification: ClassificationResult
@@ -95,6 +96,11 @@ def build_phase_one_chain(
         )
         return {
             "message": message,
+            **(
+                {"retrieval_message": state["retrieval_message"]}
+                if "retrieval_message" in state
+                else {}
+            ),
             "request_id": request_id,
             "tenant_id": state.get("tenant_id", "default"),
             "idempotency_key": state.get("idempotency_key"),
@@ -158,6 +164,7 @@ def build_phase_one_chain(
                 "primary_situation": result.primary_situation,
                 "primary_emotion": result.primary_emotion,
                 "root_conflict": result.root_conflict,
+                "primary_trait": result.primary_trait,
                 "needs_review": result.needs_review,
                 "classification_source": execution.source,
                 "cache_age_seconds": execution.cache_age_seconds,
@@ -181,6 +188,7 @@ def build_phase_one_chain(
                     "primary_situation": result.primary_situation,
                     "primary_emotion": result.primary_emotion,
                     "root_conflict": result.root_conflict,
+                    "primary_trait": result.primary_trait,
                 },
             )
         )

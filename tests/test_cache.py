@@ -54,6 +54,8 @@ def result(**overrides: Any) -> ClassificationResult:
         "primary_emotion_confidence": 0.91,
         "root_conflict": "attachment_to_results",
         "root_conflict_confidence": 0.88,
+        "primary_trait": "result_obsession",
+        "primary_trait_confidence": 0.9,
         "needs_review": False,
     }
     values.update(overrides)
@@ -102,6 +104,7 @@ def test_classification_cache_round_trip_and_ttl() -> None:
         result(needs_review=True),
         result(low_confidence_fields=("root_conflict",)),
         result(primary_emotion_confidence=0.59),
+        result(primary_trait_confidence=0.59),
     ],
 )
 def test_classification_cache_rejects_review_and_low_confidence_results(

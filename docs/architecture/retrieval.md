@@ -2,21 +2,26 @@
 
 ## Source and chunk contract
 
-The canonical source is the public-domain Swami Swarupananda translation recorded
+The canonical source is the user-provided *Bhagavad-gita As It Is* edition recorded
 in `data/sources.json`. Ingestion verifies its SHA-256 checksum before extraction.
+The manifest deliberately does not claim redistribution rights for the source.
 
-Chunk boundaries follow the printed verse structure:
+The parser identifies all 18 chapters, 653 printed `TEXT`/`TEXTS` sections, and
+their translation and purport sections. It accounts for printed combined verse
+ranges and validates exact coverage of all 700 verses. Long content is split
+recursively using these separator priorities:
 
-- One chunk per independently translated verse.
-- A printed combined range, such as 1.4-6, remains one chunk.
-- No arbitrary fixed-token overlap is introduced.
-- Every chunk preserves source, chapter, full chapter title, verse range, speaker,
-  PDF page, translation, and enriched retrieval text.
+- Paragraph breaks (`\n\n`).
+- Line breaks (`\n`).
+- Sentence-ending periods.
+- Spaces, followed by a character-level fallback only when necessary.
 
-This strategy gives stable citations and prevents a token splitter from joining
-unrelated verses or breaking an indivisible translated range. The current corpus
-contains 671 chunks covering all 700 verses exactly once. Chunks have a median of
-42 words, a 95th percentile of 55 words, and a maximum of 124 words.
+The defaults are 1,200 characters and up to 160 characters of overlap. The current
+corpus contains 1,860 chunks: 653 translation chunks and 1,207 purport chunks.
+Every chunk preserves source, chapter title, verse range, canonical verse speaker,
+section type, content author, source PDF page, and enriched retrieval text.
+Translation and commentary remain separately attributable throughout retrieval and
+generation; purport text must never be presented as Krishna's direct wording.
 
 If evaluation shows that short verses lack context, retrieval should expand the
 winning verse with adjacent verses after ranking. It should not mutate the canonical
@@ -38,7 +43,7 @@ approved hosted contract or self-hosted NIM can replace it behind the same adapt
 
 ## Bundled vector storage
 
-The 671 normalized float32 vectors are stored as a 5.2 MB NumPy matrix in
+The 1,860 normalized float32 vectors are stored as a 15 MB NumPy matrix in
 `data/processed/gita_embeddings.npy`. Its sidecar metadata records the embedding
 model, dimensions, row count, normalization contract, query/passage modes, chunk
 checksum, and embedding-file checksum.
@@ -58,23 +63,27 @@ embeddings are never regenerated during application startup.
 Retrieval is deliberately wider than the final grounding context:
 
 1. The pre-filter rejects out-of-scope and low-confidence classifications.
-2. Corpus metadata is restricted to the provenance-approved source and passages
-   spoken by "The Blessed Lord" so the answer layer receives Krishna's guidance,
-   not a narrator's or questioner's words.
+2. Corpus metadata is restricted to the provenance-approved source, verse
+   translations whose canonical speaker is Krishna, and their source-extracted
+   Sanskrit slokas. Purports remain indexed for future controlled experiments but
+   cannot enter the live `What Krishna said` generation path.
 3. Dense cosine search retrieves 20 candidates by default.
 4. The post-filter removes candidates below `RETRIEVAL_MINIMUM_SCORE` and never
-   pads an irrelevant result merely to reach five passages.
-5. Deterministic maximal marginal relevance reranking balances semantic relevance
+   pads an irrelevant result merely to reach the configured passage limit.
+5. The curated trait-to-verse catalog contributes one anchor candidate. An anchor
+   is guaranteed consideration but never bypasses JEV relevance validation.
+6. Deterministic maximal marginal relevance reranking balances semantic relevance
    with vector diversity. A chapter cap prevents near-duplicate passages from one
    chapter from occupying the complete context.
-6. One batched JEV Decisions request independently scores the relevance of every
-   reranked passage against the original message and Phase 1 classification.
-7. Passages below `RETRIEVAL_VALIDATION_THRESHOLD` are removed and final ranks
-   are compacted.
-8. At most five JEV-approved, citation-ready passages are passed to generation.
+7. One batched JEV Decisions request independently scores five reranked passages
+   against the original message and Phase 1 classification.
+8. Passages below `RETRIEVAL_VALIDATION_THRESHOLD` are removed. Approved passages
+   are ordered by JEV relevance and MMR score, and final ranks are compacted.
+9. At most three JEV-approved, citation-ready passages are passed to generation.
 
-The defaults are `candidate_k=20`, `top_k=5`, `mmr_lambda=0.8`, and at most two
-passages per chapter. These values are versioned cache inputs. The minimum score
+The defaults are `candidate_k=20`, `validation_k=5`, `top_k=3`, `mmr_lambda=0.8`,
+and at most two passages per chapter. These values and the anchor-aware pipeline
+version are cache inputs. The minimum score
 is currently a conservative zero floor and must be tuned from the labeled
 retrieval evaluation set before the public grounded-answer endpoint is enabled.
 The initial JEV validation threshold is `0.65`; this threshold and the validator
@@ -108,8 +117,9 @@ The CLI composes Phase 1 and retrieval beneath one LangSmith parent run. The
 retrieval stage includes pre-filter, retrieve/rerank, JEV-validation, and cache
 events, while each JEV prompt and response carries the same request ID.
 Structured logs cover retrieval start, cache hit/miss, candidate count,
-post-filter drops, reranking, cache write, final chunk IDs and citations, and
-duration. Raw retrieval queries are fingerprinted rather than logged by default,
+anchor and selected candidate IDs, every JEV relevance decision, post-filter
+drops, cache writes, final chunk IDs and citations, and duration. Raw retrieval
+queries are fingerprinted rather than logged by default,
 and the server request ID is injected into provider logs through request context.
 
 ## Quality gate before public grounded answers

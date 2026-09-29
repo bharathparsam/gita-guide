@@ -56,6 +56,11 @@ def successful_response() -> Mock:
                 "choice": "attachment_to_results",
                 "confidence": 0.91,
             },
+            "primary_trait": {
+                "type": "choice",
+                "choice": "failure",
+                "confidence": 0.94,
+            },
         },
     }
     return response
@@ -73,6 +78,8 @@ def test_jev_classifier_returns_validated_result() -> None:
     assert result.in_scope_probability == 0.98
     assert result.primary_situation == "fear_of_failure"
     assert result.primary_situation_confidence == 0.93
+    assert result.primary_trait == "failure"
+    assert result.primary_trait_confidence == 0.94
     assert result.needs_review is False
     assert result.provider_request_id == "decision-123"
     payload = session.post.call_args.kwargs["json"]
@@ -81,6 +88,7 @@ def test_jev_classifier_returns_validated_result() -> None:
         "primary_situation",
         "primary_emotion",
         "root_conflict",
+        "primary_trait",
     }
 
 
@@ -127,6 +135,16 @@ def test_jev_classifier_rejects_unknown_taxonomy_label() -> None:
         JevClassifier(settings(), session=session).classify("I feel stuck")
 
 
+def test_jev_classifier_rejects_unknown_gita_trait() -> None:
+    session = Mock()
+    response = successful_response()
+    response.json.return_value["answers"]["primary_trait"]["choice"] = "unknown"
+    session.post.return_value = response
+
+    with pytest.raises(ClassificationError, match="unknown primary_trait"):
+        JevClassifier(settings(), session=session).classify("I feel stuck")
+
+
 def test_jev_classifier_routes_low_confidence_for_review() -> None:
     session = Mock()
     response = successful_response()
@@ -137,6 +155,21 @@ def test_jev_classifier_routes_low_confidence_for_review() -> None:
 
     assert result.needs_review is True
     assert result.low_confidence_fields == ("root_conflict",)
+
+
+def test_classification_result_requires_trait_and_confidence_together() -> None:
+    with pytest.raises(ValueError, match="must be provided together"):
+        ClassificationResult(
+            in_scope=True,
+            in_scope_probability=0.9,
+            primary_situation="anger",
+            primary_situation_confidence=0.9,
+            primary_emotion="anger",
+            primary_emotion_confidence=0.9,
+            root_conflict="lack_of_self_control",
+            root_conflict_confidence=0.9,
+            primary_trait="anger",
+        )
 
 
 def test_jev_retries_a_transient_connection_failure() -> None:

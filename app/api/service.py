@@ -6,9 +6,9 @@ from typing import Protocol
 
 import requests
 from langchain_core.runnables import Runnable
+from langchain_openai import ChatOpenAI
 from redis import Redis
 from upstash_redis import Redis as UpstashRedis
-from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
 from app.cache import (
     ClassificationCache,
@@ -30,7 +30,9 @@ from app.guardrails.input_safety import (
     LexicalInputGuardrail,
     NvidiaSafetyGuardrail,
 )
+from app.guardrails.grounding import JevAnswerValidator
 from app.models.classification import ClassificationResult
+from app.models.conversation import ConversationContext, ConversationMemoryUpdate
 from app.models.retrieval import GroundingContext, RetrievalResult
 from app.models.generation import GuidanceResponse
 from app.observability.audit import JsonlAuditSink, NoOpAuditSink
@@ -62,6 +64,17 @@ from app.services.generation_service import (
     GroundedGuidanceGenerator,
     build_grounded_generation_input,
 )
+from app.services.conversation_service import (
+    ConversationMemoryPolicy,
+    ConversationSummarizationError,
+    ConversationSummarizer,
+    build_contextual_retrieval_message,
+    deferred_memory_update,
+)
+from app.observability.logging import get_logger
+
+
+logger = get_logger("service")
 
 
 class PhaseOneService(Protocol):
@@ -90,6 +103,7 @@ class PhaseOneService(Protocol):
         *,
         request_id: str,
         idempotency_key: str | None = None,
+        conversation_context: ConversationContext | None = None,
     ) -> GroundingContext: ...
 
     def guide(
@@ -99,6 +113,22 @@ class PhaseOneService(Protocol):
         request_id: str,
         idempotency_key: str | None = None,
     ) -> GuidanceResponse: ...
+
+    def guide_with_context(
+        self,
+        message: str,
+        *,
+        conversation_context: ConversationContext,
+        request_id: str,
+        idempotency_key: str | None = None,
+    ) -> tuple[GuidanceResponse, ConversationMemoryUpdate]: ...
+
+    def summarize_conversation(
+        self,
+        conversation_context: ConversationContext,
+        *,
+        request_id: str,
+    ) -> ConversationMemoryUpdate: ...
 
     def metrics_payload(self) -> bytes: ...
 
@@ -279,6 +309,7 @@ class ManagedPhaseOneService:
             tenant_id=self._settings.cache_tenant_id,
             policy=RetrievalPolicy(
                 candidate_k=self._settings.retrieval_candidate_k,
+                validation_k=self._settings.retrieval_validation_k,
                 top_k=self._settings.retrieval_top_k,
                 minimum_score=self._settings.retrieval_minimum_score,
                 mmr_lambda=self._settings.retrieval_mmr_lambda,
@@ -332,11 +363,16 @@ class ManagedPhaseOneService:
         *,
         request_id: str,
         idempotency_key: str | None = None,
+        conversation_context: ConversationContext | None = None,
     ) -> GroundingContext:
+        resolved_conversation = conversation_context or ConversationContext()
         return invoke_grounding_context_chain(
             self._dependencies(),
             self._retrieval_dependencies(),
             message,
+            retrieval_message=build_contextual_retrieval_message(
+                message, resolved_conversation
+            ),
             request_id=request_id,
             tenant_id=self._settings.cache_tenant_id,
             idempotency_key=idempotency_key,
@@ -352,36 +388,138 @@ class ManagedPhaseOneService:
             return generator
 
         output_guardrail_session = requests.Session()
+        answer_validation_session = requests.Session()
         with self._lock:
             if self._closed:
                 output_guardrail_session.close()
+                answer_validation_session.close()
                 raise RuntimeError("Gita Guide service is closed")
-            self._sessions.append(output_guardrail_session)
+            self._sessions.extend((output_guardrail_session, answer_validation_session))
         output_guardrail = NvidiaSafetyGuardrail(
             self._settings,
             session=output_guardrail_session,
             metrics=self._metrics,
         )
-        model = ChatNVIDIA(
-            model=self._settings.nvidia_generation_model,
-            nvidia_api_key=self._settings.nvidia_guardrail_api_key,
-            base_url=self._settings.nvidia_generation_url,
-            temperature=self._settings.nvidia_generation_temperature,
-            max_completion_tokens=self._settings.nvidia_generation_max_tokens,
+        model = ChatOpenAI(
+            model=self._settings.openrouter_generation_model,
+            api_key=self._settings.openrouter_api_key,
+            base_url=self._settings.openrouter_generation_url,
+            temperature=self._settings.openrouter_generation_temperature,
+            max_completion_tokens=self._settings.openrouter_generation_max_tokens,
+            timeout=self._settings.openrouter_generation_timeout_seconds,
             top_p=0.9,
-            model_kwargs={
-                "chat_template_kwargs": {"enable_thinking": False},
-            },
+            max_retries=0,
         )
         generator = GroundedGuidanceGenerator(
             model,
-            model_name=self._settings.nvidia_generation_model,
+            model_name=self._settings.openrouter_generation_model,
+            provider_name="openrouter",
             output_guardrail=output_guardrail.check_output,
+            answer_validator=JevAnswerValidator(
+                self._settings,
+                threshold=self._settings.answer_validation_threshold,
+                faithfulness_threshold=self._settings.answer_faithfulness_threshold,
+                citation_coverage_threshold=(
+                    self._settings.answer_citation_coverage_threshold
+                ),
+                helpfulness_threshold=self._settings.answer_helpfulness_threshold,
+                agency_threshold=self._settings.answer_agency_threshold,
+                session=answer_validation_session,
+                metrics=self._metrics,
+            ),
             audit_sink=self._audit_sink,
             metrics=self._metrics,
+            max_attempts=self._settings.generation_max_attempts,
+            provider_max_attempts=self._settings.provider_max_attempts,
         )
         self._local.guidance_generator = generator
         return generator
+
+    def _conversation_dependencies(self) -> ConversationSummarizer:
+        if self._closed:
+            raise RuntimeError("Gita Guide service is closed")
+        summarizer = getattr(self._local, "conversation_summarizer", None)
+        if summarizer is not None:
+            return summarizer
+        model = ChatOpenAI(
+            model=self._settings.openrouter_generation_model,
+            api_key=self._settings.openrouter_api_key,
+            base_url=self._settings.openrouter_generation_url,
+            temperature=0.0,
+            max_completion_tokens=self._settings.conversation_summary_max_tokens,
+            timeout=self._settings.openrouter_generation_timeout_seconds,
+            top_p=1.0,
+            max_retries=self._settings.provider_max_attempts - 1,
+        )
+        summarizer = ConversationSummarizer(
+            model,
+            model_name=self._settings.openrouter_generation_model,
+            policy=ConversationMemoryPolicy(
+                trigger_turns=self._settings.conversation_summary_trigger_turns,
+                retain_recent_turns=(
+                    self._settings.conversation_summary_retain_recent_turns
+                ),
+            ),
+        )
+        self._local.conversation_summarizer = summarizer
+        return summarizer
+
+    def summarize_conversation(
+        self,
+        conversation_context: ConversationContext,
+        *,
+        request_id: str,
+    ) -> ConversationMemoryUpdate:
+        return self._conversation_dependencies().summarize(
+            conversation_context,
+            request_id=request_id,
+        )
+
+    def guide_with_context(
+        self,
+        message: str,
+        *,
+        conversation_context: ConversationContext,
+        request_id: str,
+        idempotency_key: str | None = None,
+    ) -> tuple[GuidanceResponse, ConversationMemoryUpdate]:
+        # Classification and input safety intentionally receive only `message`.
+        context = self.classify_and_retrieve(
+            message,
+            request_id=request_id,
+            idempotency_key=idempotency_key,
+            conversation_context=conversation_context,
+        )
+        generation_input = build_grounded_generation_input(
+            message,
+            context,
+            conversation_context=conversation_context,
+        )
+        guidance = self._generation_dependencies().generate(generation_input)
+        try:
+            memory = self._conversation_dependencies().update_after_exchange(
+                conversation_context,
+                user_message=message,
+                assistant_message=guidance.guidance,
+                request_id=request_id,
+            )
+        except ConversationSummarizationError as exc:
+            # Summarization is continuity support, not a safety gate. Return the
+            # already validated guidance with bounded memory and retry next turn.
+            logger.warning(
+                "conversation.summary.deferred",
+                extra={
+                    "request_id": request_id,
+                    "stage": "conversation_summary",
+                    "error_type": type(exc).__name__,
+                },
+            )
+            memory = deferred_memory_update(
+                conversation_context,
+                user_message=message,
+                assistant_message=guidance.guidance,
+            )
+        return guidance, memory
 
     def guide(
         self,
@@ -390,13 +528,13 @@ class ManagedPhaseOneService:
         request_id: str,
         idempotency_key: str | None = None,
     ) -> GuidanceResponse:
-        context = self.classify_and_retrieve(
+        guidance, _ = self.guide_with_context(
             message,
+            conversation_context=ConversationContext(),
             request_id=request_id,
             idempotency_key=idempotency_key,
         )
-        generation_input = build_grounded_generation_input(message, context)
-        return self._generation_dependencies().generate(generation_input)
+        return guidance
 
     def metrics_payload(self) -> bytes:
         return self._metric_sink.render()

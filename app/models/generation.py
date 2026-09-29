@@ -4,7 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.classification import ClassificationResult
+from app.models.classification import ClassificationResult, GitaTrait
+from app.models.conversation import ConversationContext
 from app.models.retrieval import RetrievedChunk
 
 
@@ -16,6 +17,9 @@ class GroundedGenerationInput(BaseModel):
     schema_version: Literal["1.0"] = "1.0"
     request_id: str
     message: str = Field(min_length=1, max_length=4_000)
+    conversation_context: ConversationContext = Field(
+        default_factory=ConversationContext
+    )
     classification: ClassificationResult
     passages: tuple[RetrievedChunk, ...] = Field(min_length=1, max_length=5)
     validation_model: str
@@ -31,6 +35,19 @@ class GroundedGenerationInput(BaseModel):
         return self
 
 
+class GuidancePresentation(BaseModel):
+    """Stable UI contract for the online reflection card."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    trait_id: GitaTrait
+    label: str = Field(min_length=1, max_length=80)
+    what_krishna_said: str = Field(min_length=1, max_length=1_500)
+    how_to_overcome: str = Field(min_length=1, max_length=1_500)
+    verse: str = Field(pattern=r"^\d{1,2}\.\d{1,3}(?:-\d{1,3})?$")
+    sloka: str = Field(min_length=1, max_length=1_500)
+
+
 class GuidanceResponse(BaseModel):
     """Citation-checked, output-filtered guidance returned by the generator."""
 
@@ -39,8 +56,15 @@ class GuidanceResponse(BaseModel):
     schema_version: Literal["1.0"] = "1.0"
     request_id: str
     guidance: str = Field(min_length=1)
+    presentation: GuidancePresentation
     citations: tuple[str, ...] = Field(min_length=1, max_length=5)
     grounded_chunk_ids: tuple[str, ...] = Field(min_length=1, max_length=5)
     model: str
     provider_request_id: str | None = None
     langchain_run_id: str | None = None
+    validation_model: str
+    validation_provider_request_id: str | None = None
+    faithfulness_probability: float = Field(ge=0, le=1)
+    citation_coverage_probability: float = Field(ge=0, le=1)
+    helpfulness_probability: float = Field(ge=0, le=1)
+    agency_probability: float = Field(ge=0, le=1)

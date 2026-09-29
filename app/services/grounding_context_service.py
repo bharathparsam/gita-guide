@@ -23,6 +23,7 @@ def invoke_grounding_context_chain(
     retrieval_chain: Runnable[RetrievalState, RetrievalState],
     message: str,
     *,
+    retrieval_message: str | None = None,
     request_id: str,
     tenant_id: str = "default",
     idempotency_key: str | None = None,
@@ -56,6 +57,11 @@ def invoke_grounding_context_chain(
             output = chain.invoke(
                 {
                     "message": message,
+                    **(
+                        {"retrieval_message": retrieval_message}
+                        if retrieval_message is not None
+                        else {}
+                    ),
                     "request_id": request_id,
                     "tenant_id": tenant_id,
                     "idempotency_key": idempotency_key,

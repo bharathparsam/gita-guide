@@ -36,15 +36,26 @@ class Settings:
     idempotency_ttl_seconds: int = 86400
     retrieval_cache_ttl_seconds: int = 21600
     retrieval_candidate_k: int = 20
-    retrieval_top_k: int = 5
+    retrieval_validation_k: int = 5
+    retrieval_top_k: int = 3
     retrieval_minimum_score: float = 0.0
     retrieval_mmr_lambda: float = 0.8
     retrieval_max_per_chapter: int = 2
     retrieval_validation_threshold: float = 0.65
-    nvidia_generation_url: str = "https://integrate.api.nvidia.com/v1"
-    nvidia_generation_model: str = "nvidia/nemotron-3.5-lightning-30b-a3b"
-    nvidia_generation_temperature: float = 0.2
-    nvidia_generation_max_tokens: int = 700
+    openrouter_generation_url: str = "https://openrouter.ai/api/v1"
+    openrouter_generation_model: str = "google/gemma-4-31b-it"
+    openrouter_generation_temperature: float = 0.2
+    openrouter_generation_max_tokens: int = 320
+    openrouter_generation_timeout_seconds: float = 45.0
+    generation_max_attempts: int = 3
+    answer_validation_threshold: float = 0.75
+    answer_faithfulness_threshold: float = 0.80
+    answer_citation_coverage_threshold: float = 0.80
+    answer_helpfulness_threshold: float = 0.75
+    answer_agency_threshold: float = 0.80
+    conversation_summary_trigger_turns: int = 6
+    conversation_summary_retain_recent_turns: int = 2
+    conversation_summary_max_tokens: int = 300
     cache_tenant_id: str = "default"
     audit_log_path: str | None = "var/audit/phase1.jsonl"
     environment: str = "development"
@@ -120,17 +131,22 @@ def get_settings() -> Settings:
     if classification_cache_ttl <= 0 or idempotency_ttl <= 0 or retrieval_cache_ttl <= 0:
         raise ValueError("Cache TTL values must be greater than zero")
     retrieval_candidate_k = int(os.getenv("RETRIEVAL_CANDIDATE_K", "20"))
-    retrieval_top_k = int(os.getenv("RETRIEVAL_TOP_K", "5"))
+    retrieval_validation_k = int(os.getenv("RETRIEVAL_VALIDATION_K", "5"))
+    retrieval_top_k = int(os.getenv("RETRIEVAL_TOP_K", "3"))
     retrieval_minimum_score = float(os.getenv("RETRIEVAL_MINIMUM_SCORE", "0.0"))
     retrieval_mmr_lambda = float(os.getenv("RETRIEVAL_MMR_LAMBDA", "0.8"))
     retrieval_max_per_chapter = int(os.getenv("RETRIEVAL_MAX_PER_CHAPTER", "2"))
     retrieval_validation_threshold = float(
         os.getenv("RETRIEVAL_VALIDATION_THRESHOLD", "0.65")
     )
-    if not 1 <= retrieval_top_k <= 5:
-        raise ValueError("RETRIEVAL_TOP_K must be between 1 and 5")
-    if retrieval_candidate_k < retrieval_top_k:
-        raise ValueError("RETRIEVAL_CANDIDATE_K must be at least RETRIEVAL_TOP_K")
+    if not 1 <= retrieval_validation_k <= 5:
+        raise ValueError("RETRIEVAL_VALIDATION_K must be between 1 and 5")
+    if not 1 <= retrieval_top_k <= retrieval_validation_k:
+        raise ValueError("RETRIEVAL_TOP_K must be between 1 and RETRIEVAL_VALIDATION_K")
+    if retrieval_candidate_k < retrieval_validation_k:
+        raise ValueError(
+            "RETRIEVAL_CANDIDATE_K must be at least RETRIEVAL_VALIDATION_K"
+        )
     if not -1 <= retrieval_minimum_score <= 1:
         raise ValueError("RETRIEVAL_MINIMUM_SCORE must be between -1 and 1")
     if not 0 <= retrieval_mmr_lambda <= 1:
@@ -139,12 +155,77 @@ def get_settings() -> Settings:
         raise ValueError("RETRIEVAL_MAX_PER_CHAPTER must be at least 1")
     if not 0 <= retrieval_validation_threshold <= 1:
         raise ValueError("RETRIEVAL_VALIDATION_THRESHOLD must be between 0 and 1")
-    generation_temperature = float(os.getenv("NVIDIA_GENERATION_TEMPERATURE", "0.2"))
-    generation_max_tokens = int(os.getenv("NVIDIA_GENERATION_MAX_TOKENS", "700"))
+    generation_temperature = float(
+        os.getenv("OPENROUTER_GENERATION_TEMPERATURE", "0.2")
+    )
+    generation_max_tokens = int(
+        os.getenv("OPENROUTER_GENERATION_MAX_TOKENS", "320")
+    )
+    generation_timeout = float(
+        os.getenv("OPENROUTER_GENERATION_TIMEOUT_SECONDS", "45")
+    )
+    generation_max_attempts = int(os.getenv("GENERATION_MAX_ATTEMPTS", "3"))
+    answer_validation_threshold = float(
+        os.getenv("ANSWER_VALIDATION_THRESHOLD", "0.75")
+    )
+    answer_faithfulness_threshold = float(
+        os.getenv("ANSWER_FAITHFULNESS_THRESHOLD", "0.80")
+    )
+    answer_citation_coverage_threshold = float(
+        os.getenv("ANSWER_CITATION_COVERAGE_THRESHOLD", "0.80")
+    )
+    answer_helpfulness_threshold = float(
+        os.getenv("ANSWER_HELPFULNESS_THRESHOLD", "0.75")
+    )
+    answer_agency_threshold = float(os.getenv("ANSWER_AGENCY_THRESHOLD", "0.80"))
+    conversation_summary_trigger_turns = int(
+        os.getenv("CONVERSATION_SUMMARY_TRIGGER_TURNS", "6")
+    )
+    conversation_summary_retain_recent_turns = int(
+        os.getenv("CONVERSATION_SUMMARY_RETAIN_RECENT_TURNS", "2")
+    )
+    conversation_summary_max_tokens = int(
+        os.getenv("CONVERSATION_SUMMARY_MAX_TOKENS", "300")
+    )
     if not 0 <= generation_temperature <= 1:
-        raise ValueError("NVIDIA_GENERATION_TEMPERATURE must be between 0 and 1")
+        raise ValueError("OPENROUTER_GENERATION_TEMPERATURE must be between 0 and 1")
     if generation_max_tokens < 1:
-        raise ValueError("NVIDIA_GENERATION_MAX_TOKENS must be at least 1")
+        raise ValueError("OPENROUTER_GENERATION_MAX_TOKENS must be at least 1")
+    if generation_timeout <= 0:
+        raise ValueError("OPENROUTER_GENERATION_TIMEOUT_SECONDS must be greater than zero")
+    if not 1 <= generation_max_attempts <= 4:
+        raise ValueError("GENERATION_MAX_ATTEMPTS must be between 1 and 4")
+    if not 0 <= answer_validation_threshold <= 1:
+        raise ValueError("ANSWER_VALIDATION_THRESHOLD must be between 0 and 1")
+    answer_thresholds = {
+        "ANSWER_FAITHFULNESS_THRESHOLD": answer_faithfulness_threshold,
+        "ANSWER_CITATION_COVERAGE_THRESHOLD": answer_citation_coverage_threshold,
+        "ANSWER_HELPFULNESS_THRESHOLD": answer_helpfulness_threshold,
+        "ANSWER_AGENCY_THRESHOLD": answer_agency_threshold,
+    }
+    for name, value in answer_thresholds.items():
+        if not 0 <= value <= 1:
+            raise ValueError(f"{name} must be between 0 and 1")
+    if (
+        conversation_summary_trigger_turns < 4
+        or conversation_summary_trigger_turns > 8
+        or conversation_summary_trigger_turns % 2 != 0
+    ):
+        raise ValueError(
+            "CONVERSATION_SUMMARY_TRIGGER_TURNS must be an even number from 4 to 8"
+        )
+    if (
+        conversation_summary_retain_recent_turns < 2
+        or conversation_summary_retain_recent_turns % 2 != 0
+        or conversation_summary_retain_recent_turns
+        >= conversation_summary_trigger_turns
+    ):
+        raise ValueError(
+            "CONVERSATION_SUMMARY_RETAIN_RECENT_TURNS must be an even number of at "
+            "least 2 below the trigger"
+        )
+    if conversation_summary_max_tokens < 64:
+        raise ValueError("CONVERSATION_SUMMARY_MAX_TOKENS must be at least 64")
     cache_tenant_id = os.getenv("CACHE_TENANT_ID", "default").strip()
     if not cache_tenant_id:
         raise ValueError("CACHE_TENANT_ID cannot be empty")
@@ -196,20 +277,33 @@ def get_settings() -> Settings:
         idempotency_ttl_seconds=idempotency_ttl,
         retrieval_cache_ttl_seconds=retrieval_cache_ttl,
         retrieval_candidate_k=retrieval_candidate_k,
+        retrieval_validation_k=retrieval_validation_k,
         retrieval_top_k=retrieval_top_k,
         retrieval_minimum_score=retrieval_minimum_score,
         retrieval_mmr_lambda=retrieval_mmr_lambda,
         retrieval_max_per_chapter=retrieval_max_per_chapter,
         retrieval_validation_threshold=retrieval_validation_threshold,
-        nvidia_generation_url=os.getenv(
-            "NVIDIA_GENERATION_URL", "https://integrate.api.nvidia.com/v1"
+        openrouter_generation_url=os.getenv(
+            "OPENROUTER_GENERATION_URL", "https://openrouter.ai/api/v1"
         ).rstrip("/"),
-        nvidia_generation_model=os.getenv(
-            "NVIDIA_GENERATION_MODEL",
-            "nvidia/nemotron-3.5-lightning-30b-a3b",
+        openrouter_generation_model=os.getenv(
+            "OPENROUTER_GENERATION_MODEL",
+            "google/gemma-4-31b-it",
         ),
-        nvidia_generation_temperature=generation_temperature,
-        nvidia_generation_max_tokens=generation_max_tokens,
+        openrouter_generation_temperature=generation_temperature,
+        openrouter_generation_max_tokens=generation_max_tokens,
+        openrouter_generation_timeout_seconds=generation_timeout,
+        generation_max_attempts=generation_max_attempts,
+        answer_validation_threshold=answer_validation_threshold,
+        answer_faithfulness_threshold=answer_faithfulness_threshold,
+        answer_citation_coverage_threshold=answer_citation_coverage_threshold,
+        answer_helpfulness_threshold=answer_helpfulness_threshold,
+        answer_agency_threshold=answer_agency_threshold,
+        conversation_summary_trigger_turns=conversation_summary_trigger_turns,
+        conversation_summary_retain_recent_turns=(
+            conversation_summary_retain_recent_turns
+        ),
+        conversation_summary_max_tokens=conversation_summary_max_tokens,
         cache_tenant_id=cache_tenant_id,
         audit_log_path=audit_log_path or None,
         environment=environment,

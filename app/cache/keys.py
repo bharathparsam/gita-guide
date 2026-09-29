@@ -29,7 +29,7 @@ class ClassificationCacheKeyContext:
     prompt_version: str
     confidence_threshold: float
     scope_threshold: float
-    result_schema_version: str = "1.0"
+    result_schema_version: str = "1.1"
     key_version: str = "v1"
 
     def __post_init__(self) -> None:
@@ -62,12 +62,14 @@ class RetrievalCacheKeyContext:
     validator_prompt_version: str
     validator_threshold: float
     candidate_k: int
+    validation_k: int
     top_k: int
     minimum_score: float
     mmr_lambda: float
     max_per_chapter: int
     allowed_source_ids: tuple[str, ...]
     allowed_speakers: tuple[str, ...]
+    allowed_sections: tuple[str, ...]
     key_version: str = "v1"
 
     def __post_init__(self) -> None:
@@ -83,10 +85,12 @@ class RetrievalCacheKeyContext:
         ):
             if not getattr(self, name).strip():
                 raise ValueError(f"{name} cannot be empty")
-        if self.candidate_k < 1 or self.top_k < 1 or self.top_k > 5:
-            raise ValueError("candidate_k and top_k must be positive and top_k cannot exceed 5")
-        if self.candidate_k < self.top_k:
-            raise ValueError("candidate_k must be at least top_k")
+        if self.candidate_k < 1 or not 1 <= self.validation_k <= 5:
+            raise ValueError("candidate_k must be positive and validation_k must be 1-5")
+        if not 1 <= self.top_k <= self.validation_k:
+            raise ValueError("top_k must be between 1 and validation_k")
+        if self.candidate_k < self.validation_k:
+            raise ValueError("candidate_k must be at least validation_k")
         if not -1 <= self.minimum_score <= 1:
             raise ValueError("minimum_score must be between -1 and 1")
         if not 0 <= self.mmr_lambda <= 1:
@@ -95,8 +99,10 @@ class RetrievalCacheKeyContext:
             raise ValueError("validator_threshold must be between 0 and 1")
         if self.max_per_chapter < 1:
             raise ValueError("max_per_chapter must be at least 1")
-        if not self.allowed_source_ids or not self.allowed_speakers:
-            raise ValueError("retrieval source and speaker allowlists cannot be empty")
+        if not self.allowed_source_ids or not self.allowed_speakers or not self.allowed_sections:
+            raise ValueError(
+                "retrieval source, speaker, and section allowlists cannot be empty"
+            )
 
 
 class HmacCacheKeyBuilder:

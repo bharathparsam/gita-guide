@@ -19,7 +19,9 @@ def file_sha256(path: Path) -> str:
 
 def main() -> int:
     load_dotenv(".env")
-    parser = argparse.ArgumentParser(description="Embed the verse-aware Gita corpus")
+    parser = argparse.ArgumentParser(
+        description="Embed the recursively chunked Gita corpus"
+    )
     parser.add_argument(
         "--chunks", type=Path, default=Path("data/processed/gita_chunks.jsonl")
     )

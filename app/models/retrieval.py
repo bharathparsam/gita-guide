@@ -21,6 +21,9 @@ class RetrievedChunk(BaseModel):
     verse_label: str
     speaker: str
     source_pdf_page: int = Field(ge=1)
+    section: Literal["translation", "purport"] = "translation"
+    content_author: str | None = None
+    sloka: str = ""
     translation: str
     similarity_score: float = Field(ge=-1, le=1)
     rerank_score: float

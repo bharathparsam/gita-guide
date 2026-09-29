@@ -27,9 +27,10 @@ from app.retrieval.jev_relevance_validator import (
     RetrievalValidationError,
     RetrievalValidator,
 )
+from app.retrieval.trait_anchors import curated_anchor_verse_labels
 
 
-RETRIEVAL_PIPELINE_VERSION = "retrieval-v2"
+RETRIEVAL_PIPELINE_VERSION = "retrieval-v5"
 RERANKER_VERSION = "dense-mmr-v1"
 logger = get_logger("retrieval")
 
@@ -41,26 +42,30 @@ class RetrievalNotEligible(ValueError):
 @dataclass(frozen=True, slots=True)
 class RetrievalPolicy:
     candidate_k: int = 20
-    top_k: int = 5
+    validation_k: int = 5
+    top_k: int = 3
     minimum_score: float = 0.0
     mmr_lambda: float = 0.8
     max_per_chapter: int = 2
-    allowed_source_ids: tuple[str, ...] = ("gita-swarupananda-1909",)
-    allowed_speakers: tuple[str, ...] = ("The Blessed Lord said",)
+    allowed_source_ids: tuple[str, ...] = ("bhagavad-gita-as-it-is",)
+    allowed_speakers: tuple[str, ...] = ("Krishna",)
+    allowed_sections: tuple[str, ...] = ("translation",)
 
     def __post_init__(self) -> None:
-        if self.candidate_k < 1 or self.top_k < 1 or self.top_k > 5:
-            raise ValueError("candidate_k and top_k must be positive and top_k cannot exceed 5")
-        if self.candidate_k < self.top_k:
-            raise ValueError("candidate_k must be at least top_k")
+        if self.candidate_k < 1 or not 1 <= self.validation_k <= 5:
+            raise ValueError("candidate_k must be positive and validation_k must be 1-5")
+        if not 1 <= self.top_k <= self.validation_k:
+            raise ValueError("top_k must be between 1 and validation_k")
+        if self.candidate_k < self.validation_k:
+            raise ValueError("candidate_k must be at least validation_k")
         if not -1 <= self.minimum_score <= 1:
             raise ValueError("minimum_score must be between -1 and 1")
         if not 0 <= self.mmr_lambda <= 1:
             raise ValueError("mmr_lambda must be between 0 and 1")
         if self.max_per_chapter < 1:
             raise ValueError("max_per_chapter must be positive")
-        if not self.allowed_source_ids or not self.allowed_speakers:
-            raise ValueError("source and speaker allowlists cannot be empty")
+        if not self.allowed_source_ids or not self.allowed_speakers or not self.allowed_sections:
+            raise ValueError("source, speaker, and section allowlists cannot be empty")
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,10 +81,12 @@ class _Retrieved:
 
 class RetrievalState(TypedDict, total=False):
     message: str
+    retrieval_message: str
     request_id: str
     tenant_id: str
     classification: ClassificationResult
     retrieval_query: str
+    anchor_chunk_ids: tuple[str, ...]
     retrieval: RetrievalResult
 
 
@@ -116,17 +123,28 @@ class RetrievalExecutor:
             validator_prompt_version=validator.prompt_version,
             validator_threshold=validator.threshold,
             candidate_k=self._policy.candidate_k,
+            validation_k=self._policy.validation_k,
             top_k=self._policy.top_k,
             minimum_score=self._policy.minimum_score,
             mmr_lambda=self._policy.mmr_lambda,
             max_per_chapter=self._policy.max_per_chapter,
             allowed_source_ids=self._policy.allowed_source_ids,
             allowed_speakers=self._policy.allowed_speakers,
+            allowed_sections=self._policy.allowed_sections,
         )
 
     @property
     def cache_context(self) -> RetrievalCacheKeyContext:
         return self._context
+
+    def resolve_anchor_chunk_ids(
+        self, verse_labels: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        resolved = (
+            self._retriever.chunk_id_for_verse_label(verse_label)
+            for verse_label in verse_labels
+        )
+        return tuple(chunk_id for chunk_id in resolved if chunk_id is not None)
 
     def _from_cache(self, query: str, *, request_id: str) -> _Retrieved | None:
         if self._cache is None:
@@ -208,7 +226,14 @@ class RetrievalExecutor:
             validation_provider_request_id=cached.validation_provider_request_id,
         )
 
-    def _retrieve_uncached(self, query: str, *, request_id: str) -> _Retrieved:
+    def _retrieve_uncached(
+        self,
+        query: str,
+        *,
+        request_id: str,
+        anchor_chunk_ids: tuple[str, ...] = (),
+        cache_identity: str | None = None,
+    ) -> _Retrieved:
         policy = self._policy
         started = perf_counter()
         candidates = self._retriever.retrieve(
@@ -217,6 +242,8 @@ class RetrievalExecutor:
             minimum_score=-1.0,
             source_ids=frozenset(policy.allowed_source_ids),
             speakers=frozenset(policy.allowed_speakers),
+            sections=frozenset(policy.allowed_sections),
+            required_chunk_ids=frozenset(anchor_chunk_ids),
         )
         logger.info(
             "phase2.retrieval.candidates_retrieved",
@@ -233,7 +260,11 @@ class RetrievalExecutor:
         filtered = [
             document
             for document in candidates
-            if float(document.metadata["similarity_score"]) >= policy.minimum_score
+            if (
+                float(document.metadata["similarity_score"])
+                >= policy.minimum_score
+                or str(document.metadata["chunk_id"]) in anchor_chunk_ids
+            )
         ]
         logger.info(
             "phase2.retrieval.post_filter_completed",
@@ -250,9 +281,10 @@ class RetrievalExecutor:
         rerank_started = perf_counter()
         selected = self._retriever.rerank_mmr(
             filtered,
-            top_k=policy.top_k,
+            top_k=policy.validation_k,
             mmr_lambda=policy.mmr_lambda,
             max_per_chapter=policy.max_per_chapter,
+            required_chunk_ids=frozenset(anchor_chunk_ids),
         )
         logger.info(
             "phase2.retrieval.rerank_completed",
@@ -261,7 +293,12 @@ class RetrievalExecutor:
                 "stage": "retrieval_rerank",
                 "input_count": len(filtered),
                 "output_count": len(selected),
-                "top_k": policy.top_k,
+                "validation_k": policy.validation_k,
+                "generation_top_k": policy.top_k,
+                "anchor_chunk_ids": list(anchor_chunk_ids),
+                "selected_chunk_ids": [
+                    str(document.metadata["chunk_id"]) for document in selected
+                ],
                 "mmr_lambda": policy.mmr_lambda,
                 "max_per_chapter": policy.max_per_chapter,
                 "duration_ms": round((perf_counter() - rerank_started) * 1000, 2),
@@ -278,18 +315,27 @@ class RetrievalExecutor:
             raise RetrievalValidationError(
                 "JEV validation did not return exactly one decision per passage"
             )
-        validated: list[Document] = []
+        approved: list[Document] = []
         for document in selected:
             decision = validations_by_id[str(document.metadata["chunk_id"])]
             if not decision.accepted:
                 continue
             document.metadata["validation_probability"] = decision.relevance_probability
-            document.metadata["final_rank"] = len(validated) + 1
-            validated.append(document)
-        rejected_count = len(selected) - len(validated)
+            approved.append(document)
+        approved.sort(
+            key=lambda document: (
+                float(document.metadata["validation_probability"]),
+                float(document.metadata["rerank_score"]),
+            ),
+            reverse=True,
+        )
+        validated = approved[: policy.top_k]
+        for index, document in enumerate(validated, start=1):
+            document.metadata["final_rank"] = index
+        rejected_count = len(selected) - len(approved)
         self._metrics.retrieval_validation(
             status="passed" if validated else "no_valid_chunks",
-            accepted_count=len(validated),
+            accepted_count=len(approved),
             rejected_count=rejected_count,
         )
         logger.info(
@@ -298,11 +344,20 @@ class RetrievalExecutor:
                 "request_id": request_id,
                 "stage": "retrieval_jev_validation",
                 "input_count": len(selected),
-                "accepted_count": len(validated),
+                "accepted_count": len(approved),
+                "returned_count": len(validated),
                 "rejected_count": rejected_count,
                 "validation_threshold": self._validator.threshold,
                 "model": validation.model,
                 "provider_request_id": validation.provider_request_id,
+                "decisions": [
+                    {
+                        "chunk_id": item.chunk_id,
+                        "relevance_probability": item.relevance_probability,
+                        "accepted": item.accepted,
+                    }
+                    for item in validation.chunks
+                ],
                 "duration_ms": round((perf_counter() - validation_started) * 1000, 2),
             },
         )
@@ -323,7 +378,7 @@ class RetrievalExecutor:
             )
             try:
                 self._cache.put(
-                    query,
+                    cache_identity or query,
                     self._context,
                     items,
                     candidate_count=len(candidates),
@@ -360,9 +415,20 @@ class RetrievalExecutor:
             validation_provider_request_id=validation.provider_request_id,
         )
 
-    def execute(self, query: str, *, request_id: str) -> RetrievalResult:
+    def execute(
+        self,
+        query: str,
+        *,
+        request_id: str,
+        anchor_chunk_ids: tuple[str, ...] = (),
+    ) -> RetrievalResult:
         started = perf_counter()
         safe_query_fields = prompt_log_fields(query, include_content=False)
+        cache_identity = (
+            f"{query}\nCurated anchor candidates: {','.join(anchor_chunk_ids)}"
+            if anchor_chunk_ids
+            else query
+        )
         logger.info(
             "phase2.retrieval.started",
             extra={
@@ -370,20 +436,27 @@ class RetrievalExecutor:
                 "stage": "retrieval",
                 "pipeline_version": RETRIEVAL_PIPELINE_VERSION,
                 "candidate_k": self._policy.candidate_k,
+                "validation_k": self._policy.validation_k,
                 "top_k": self._policy.top_k,
+                "anchor_chunk_ids": list(anchor_chunk_ids),
                 **safe_query_fields,
             },
         )
-        cached = self._from_cache(query, request_id=request_id)
+        cached = self._from_cache(cache_identity, request_id=request_id)
         if cached is None:
             cache_key = (
-                self._cache.key_for(query, self._context)
+                self._cache.key_for(cache_identity, self._context)
                 if self._cache is not None
                 else f"uncached:{safe_query_fields['prompt_fingerprint']}"
             )
 
             def load() -> _Retrieved:
-                return self._retrieve_uncached(query, request_id=request_id)
+                return self._retrieve_uncached(
+                    query,
+                    request_id=request_id,
+                    anchor_chunk_ids=anchor_chunk_ids,
+                    cache_identity=cache_identity,
+                )
 
             flight = self._single_flight.do(cache_key, load)
             retrieved = flight.value
@@ -468,6 +541,13 @@ class RetrievalExecutor:
             verse_label=str(metadata["verse_label"]),
             speaker=str(metadata["speaker"]),
             source_pdf_page=int(metadata["source_pdf_page"]),
+            section=str(metadata.get("section", "translation")),
+            content_author=(
+                str(metadata["content_author"])
+                if metadata.get("content_author") is not None
+                else None
+            ),
+            sloka=str(metadata.get("sloka", "")),
             translation=document.page_content,
             similarity_score=float(metadata["similarity_score"]),
             rerank_score=float(metadata["rerank_score"]),
@@ -486,9 +566,14 @@ def build_filtered_retrieval_chain(
         classification = ClassificationResult.model_validate(state["classification"])
         if not classification.in_scope:
             raise RetrievalNotEligible("Out-of-scope classifications are not retrieved")
-        if classification.needs_review or classification.low_confidence_fields:
-            raise RetrievalNotEligible("Low-confidence classifications require review")
-        query = build_classification_query(state["message"], classification)
+        if "in_scope" in classification.low_confidence_fields:
+            raise RetrievalNotEligible("Low-confidence scope decisions require review")
+        query = build_classification_query(
+            state.get("retrieval_message", state["message"]), classification
+        )
+        anchor_chunk_ids = executor.resolve_anchor_chunk_ids(
+            curated_anchor_verse_labels(classification)
+        )
         logger.info(
             "phase2.retrieval.pre_filter_completed",
             extra={
@@ -496,15 +581,27 @@ def build_filtered_retrieval_chain(
                 "stage": "retrieval_pre_filter",
                 "in_scope": classification.in_scope,
                 "needs_review": classification.needs_review,
+                "omitted_low_confidence_fields": list(
+                    classification.low_confidence_fields
+                ),
                 "allowed_source_count": len(executor.cache_context.allowed_source_ids),
                 "allowed_speaker_count": len(executor.cache_context.allowed_speakers),
+                "allowed_section_count": len(executor.cache_context.allowed_sections),
+                "anchor_chunk_ids": list(anchor_chunk_ids),
             },
         )
-        return {**state, "classification": classification, "retrieval_query": query}
+        return {
+            **state,
+            "classification": classification,
+            "retrieval_query": query,
+            "anchor_chunk_ids": anchor_chunk_ids,
+        }
 
     def retrieve(state: RetrievalState) -> RetrievalState:
         result = executor.execute(
-            state["retrieval_query"], request_id=state["request_id"]
+            state["retrieval_query"],
+            request_id=state["request_id"],
+            anchor_chunk_ids=state.get("anchor_chunk_ids", ()),
         )
         return {**state, "retrieval": result}
 

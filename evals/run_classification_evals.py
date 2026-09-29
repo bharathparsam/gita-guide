@@ -12,7 +12,13 @@ from app.classifiers.taxonomy import TAXONOMY_VERSION
 from app.observability.logging import configure_logging
 
 
-FIELDS = ("in_scope", "primary_situation", "primary_emotion", "root_conflict")
+FIELDS = (
+    "in_scope",
+    "primary_situation",
+    "primary_emotion",
+    "root_conflict",
+    "primary_trait",
+)
 
 
 def load_cases(path: Path) -> list[dict[str, Any]]:
@@ -64,6 +70,8 @@ def run(cases: list[dict[str, Any]], repeats: int) -> dict[str, Any]:
             confidence_totals["primary_situation"] += result.primary_situation_confidence
             confidence_totals["primary_emotion"] += result.primary_emotion_confidence
             confidence_totals["root_conflict"] += result.root_conflict_confidence
+            if result.primary_trait_confidence is not None:
+                confidence_totals["primary_trait"] += result.primary_trait_confidence
 
             for field in FIELDS:
                 if field not in expected:
@@ -92,6 +100,7 @@ def run(cases: list[dict[str, Any]], repeats: int) -> dict[str, Any]:
                             "primary_situation": result.primary_situation_confidence,
                             "primary_emotion": result.primary_emotion_confidence,
                             "root_conflict": result.root_conflict_confidence,
+                            "primary_trait": result.primary_trait_confidence,
                         },
                     }
                 )

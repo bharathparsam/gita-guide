@@ -1,9 +1,16 @@
 .env
 __pycache__/
 *.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 .venv/
 venv/
 *.npy
 !data/processed/gita_embeddings.npy
 data/vector/
+evals/reports/
 var/
+.DS_Store

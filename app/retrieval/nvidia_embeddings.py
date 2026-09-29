@@ -10,7 +10,12 @@ from langchain_core.embeddings import Embeddings
 
 from app.observability.logging import get_logger, prompt_log_fields
 from app.observability.metrics import NoOpMetricSink, PhaseOneMetrics
-from app.reliability import CircuitBreaker, RetryPolicy, call_with_resilience
+from app.reliability import (
+    CircuitBreaker,
+    RetryPolicy,
+    call_with_resilience,
+    raise_for_provider_status,
+)
 
 
 DEFAULT_NVIDIA_EMBEDDING_MODEL = "nvidia/nemotron-3-embed-1b"
@@ -136,7 +141,7 @@ class NvidiaNemotronEmbeddings(Embeddings):
                 json=payload,
                 timeout=self.timeout_seconds,
             )
-            response.raise_for_status()
+            raise_for_provider_status(response)
             return response
 
         try:

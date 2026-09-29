@@ -59,6 +59,11 @@ class ClassificationCachePolicy:
             result.primary_situation_confidence,
             result.primary_emotion_confidence,
             result.root_conflict_confidence,
+            *(
+                (result.primary_trait_confidence,)
+                if result.primary_trait_confidence is not None
+                else ()
+            ),
         )
         return (
             not result.needs_review

@@ -13,6 +13,27 @@ from langchain_core.runnables import Runnable, RunnableLambda
 from app.models.classification import ClassificationResult
 
 
+RETRIEVAL_QUERY_EXPANSION_VERSION = "gita-concepts-v4"
+_SITUATION_QUERY_EXPANSIONS = {
+    "fear_of_failure": "action courage success failure steadiness",
+    "outcome_anxiety": "work action fruit result success failure equanimity",
+    "comparison": "contentment envy own duty equality",
+    "anger": (
+        "anger delusion discrimination self-control restraint non-injury truth "
+        "gentleness compassion kindliness silence forbearance conduct speech "
+        "serenity honesty motive non-vexing agreeable beneficial"
+    ),
+    "grief": "grief death impermanent self body",
+    "confusion": "duty action discernment right conduct",
+    "lack_of_motivation": "action inaction duty effort",
+    "purpose": "own duty nature service action",
+    "discipline": "mind practice detachment senses self-control",
+    "relationship_conflict": (
+        "compassion friendliness non-hatred patience forgiveness equanimity"
+    ),
+}
+
+
 class RetrievalCorpusError(RuntimeError):
     """Raised when retrieval artifacts fail their provenance contract."""
 
@@ -30,6 +51,8 @@ class GitaRetriever(Protocol):
         minimum_score: float = -1.0,
         source_ids: frozenset[str] | None = None,
         speakers: frozenset[str] | None = None,
+        sections: frozenset[str] | None = None,
+        required_chunk_ids: frozenset[str] | None = None,
     ) -> list[Document]: ...
 
 
@@ -46,12 +69,32 @@ def build_classification_query(
     classification: ClassificationResult,
 ) -> str:
     """Create an auditable query from the message and Phase 1 decision."""
-    return (
-        f"User situation: {message.strip()}\n"
-        f"Primary situation: {classification.primary_situation.replace('_', ' ')}\n"
-        f"Primary emotion: {classification.primary_emotion.replace('_', ' ')}\n"
-        f"Root conflict: {classification.root_conflict.replace('_', ' ')}"
-    )
+    low_confidence = set(classification.low_confidence_fields)
+    lines = [f"User situation: {message.strip()}"]
+    if "primary_situation" not in low_confidence:
+        lines.append(
+            f"Primary situation: {classification.primary_situation.replace('_', ' ')}"
+        )
+        expansion = _SITUATION_QUERY_EXPANSIONS.get(classification.primary_situation)
+        if expansion:
+            lines.append(
+                f"Bhagavad Gita concept expansion ({RETRIEVAL_QUERY_EXPANSION_VERSION}): "
+                f"{expansion}"
+            )
+    if "primary_emotion" not in low_confidence:
+        lines.append(
+            f"Primary emotion: {classification.primary_emotion.replace('_', ' ')}"
+        )
+    if "root_conflict" not in low_confidence:
+        lines.append(f"Root conflict: {classification.root_conflict.replace('_', ' ')}")
+    if (
+        classification.primary_trait is not None
+        and "primary_trait" not in low_confidence
+    ):
+        lines.append(
+            f"Primary Gita trait: {classification.primary_trait.replace('_', ' ')}"
+        )
+    return "\n".join(lines)
 
 
 class GitaVectorRetriever:
@@ -77,6 +120,16 @@ class GitaVectorRetriever:
         self._chunk_index = {
             str(chunk["chunk_id"]): index for index, chunk in enumerate(chunks)
         }
+        self._translation_verse_index: dict[tuple[int, int], str] = {}
+        for chunk in chunks:
+            if str(chunk.get("section", "translation")) != "translation":
+                continue
+            for verse in range(
+                int(chunk["verse_start"]), int(chunk["verse_end"]) + 1
+            ):
+                self._translation_verse_index[(int(chunk["chapter"]), verse)] = str(
+                    chunk["chunk_id"]
+                )
         if len(self._chunk_index) != len(chunks):
             raise RetrievalCorpusError("Gita chunk IDs must be unique")
         self.model_name = model_name
@@ -86,6 +139,17 @@ class GitaVectorRetriever:
     @property
     def chunk_count(self) -> int:
         return len(self._chunks)
+
+    def has_chunk_id(self, chunk_id: str) -> bool:
+        return chunk_id in self._chunk_index
+
+    def chunk_id_for_verse_label(self, verse_label: str) -> str | None:
+        try:
+            chapter_text, verse_text = verse_label.split(".", maxsplit=1)
+            verse_start = verse_text.split("-", maxsplit=1)[0]
+            return self._translation_verse_index[(int(chapter_text), int(verse_start))]
+        except (KeyError, ValueError):
+            return None
 
     @classmethod
     def from_files(
@@ -132,6 +196,8 @@ class GitaVectorRetriever:
         minimum_score: float = -1.0,
         source_ids: frozenset[str] | None = None,
         speakers: frozenset[str] | None = None,
+        sections: frozenset[str] | None = None,
+        required_chunk_ids: frozenset[str] | None = None,
     ) -> list[Document]:
         if top_k < 1:
             raise ValueError("top_k must be at least 1")
@@ -152,6 +218,10 @@ class GitaVectorRetriever:
                 for index, chunk in enumerate(self._chunks)
                 if (source_ids is None or str(chunk.get("source_id")) in source_ids)
                 and (speakers is None or str(chunk.get("speaker")) in speakers)
+                and (
+                    sections is None
+                    or str(chunk.get("section", "translation")) in sections
+                )
             ],
             dtype=np.int64,
         )
@@ -159,7 +229,18 @@ class GitaVectorRetriever:
             return []
         eligible_scores = scores[eligible_indices]
         ranked_positions = np.argsort(-eligible_scores, kind="stable")[:top_k]
-        ranked_indices = eligible_indices[ranked_positions]
+        ranked_indices = list(eligible_indices[ranked_positions])
+        ranked_index_set = {int(index) for index in ranked_indices}
+        eligible_index_set = {int(index) for index in eligible_indices}
+        for chunk_id in required_chunk_ids or ():
+            index = self._chunk_index.get(chunk_id)
+            if (
+                index is not None
+                and index in eligible_index_set
+                and index not in ranked_index_set
+            ):
+                ranked_indices.append(np.int64(index))
+                ranked_index_set.add(index)
 
         documents: list[Document] = []
         for dense_rank, index in enumerate(ranked_indices, start=1):
@@ -178,6 +259,11 @@ class GitaVectorRetriever:
                     "verse_end",
                     "verse_label",
                     "speaker",
+                    "section",
+                    "content_author",
+                    "sloka",
+                    "chunk_index",
+                    "chunk_count",
                     "source_pdf_page",
                 )
                 if key in chunk
@@ -229,8 +315,14 @@ class GitaVectorRetriever:
                     "verse_end",
                     "verse_label",
                     "speaker",
+                    "section",
+                    "content_author",
+                    "sloka",
+                    "chunk_index",
+                    "chunk_count",
                     "source_pdf_page",
                 )
+                if key in chunk
             }
             metadata.update(
                 {
@@ -256,6 +348,7 @@ class GitaVectorRetriever:
         top_k: int,
         mmr_lambda: float,
         max_per_chapter: int,
+        required_chunk_ids: frozenset[str] | None = None,
     ) -> list[Document]:
         """Rerank dense candidates for relevance plus chapter-level diversity."""
         if not 0 <= mmr_lambda <= 1:
@@ -263,9 +356,23 @@ class GitaVectorRetriever:
         if top_k < 1 or max_per_chapter < 1:
             raise ValueError("top_k and max_per_chapter must be positive")
 
-        remaining = list(candidates)
+        required = required_chunk_ids or frozenset()
+        anchored = [
+            document
+            for document in candidates
+            if str(document.metadata["chunk_id"]) in required
+        ][:top_k]
+        remaining = [document for document in candidates if document not in anchored]
         selected: list[Document] = []
         chapter_counts: dict[int, int] = {}
+        for document in anchored:
+            document.metadata["rerank_score"] = float(
+                document.metadata["similarity_score"]
+            )
+            document.metadata["final_rank"] = len(selected) + 1
+            selected.append(document)
+            chapter = int(document.metadata["chapter"])
+            chapter_counts[chapter] = chapter_counts.get(chapter, 0) + 1
         while remaining and len(selected) < top_k:
             eligible = [
                 document

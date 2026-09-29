@@ -13,8 +13,8 @@ from app.retrieval.local_retriever import DEFAULT_CHUNKS_PATH
 
 
 _SMOKE_CHUNK_IDS = {
-    "gita-swarupananda-1909:02:047-047",
-    "gita-swarupananda-1909:17:023-023",
+    "bhagavad-gita-as-it-is:02:047-047:translation:001",
+    "bhagavad-gita-as-it-is:17:023-023:translation:001",
 }
 
 
@@ -38,6 +38,9 @@ def _smoke_documents() -> list[Document]:
                 "chunk_id": chunk_id,
                 "chapter": chunks[chunk_id]["chapter"],
                 "verse_label": chunks[chunk_id]["verse_label"],
+                "speaker": chunks[chunk_id]["speaker"],
+                "section": chunks[chunk_id]["section"],
+                "content_author": chunks[chunk_id]["content_author"],
             },
         )
         for chunk_id in sorted(_SMOKE_CHUNK_IDS)
@@ -65,8 +68,8 @@ def main() -> int:
         )
     decisions = {item.chunk_id: item for item in result.chunks}
     quality_gate_passed = (
-        decisions["gita-swarupananda-1909:02:047-047"].accepted
-        and not decisions["gita-swarupananda-1909:17:023-023"].accepted
+        decisions["bhagavad-gita-as-it-is:02:047-047:translation:001"].accepted
+        and not decisions["bhagavad-gita-as-it-is:17:023-023:translation:001"].accepted
     )
     print(
         json.dumps(

@@ -4,7 +4,13 @@ from uuid import uuid4
 
 import requests
 
-from app.classifiers.taxonomy import EMOTIONS, ROOT_CONFLICTS, SITUATIONS, TAXONOMY_VERSION
+from app.classifiers.taxonomy import (
+    EMOTIONS,
+    GITA_TRAITS,
+    ROOT_CONFLICTS,
+    SITUATIONS,
+    TAXONOMY_VERSION,
+)
 from app.config import Settings, get_settings
 from app.models.classification import ClassificationResult
 from app.observability.logging import (
@@ -19,11 +25,12 @@ from app.reliability import (
     CircuitBreakerOpenError,
     RetryPolicy,
     call_with_resilience,
+    raise_for_provider_status,
 )
 
 
 OPENROUTER_DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
-JEV_PROMPT_VERSION = "jev-prompt-v1"
+JEV_PROMPT_VERSION = "jev-prompt-v2"
 logger = get_logger("jev")
 
 
@@ -133,6 +140,20 @@ def _classify(
                 ),
                 "criteria": ROOT_CONFLICTS,
             },
+            "primary_trait": {
+                "type": "choice",
+                "instructions": (
+                    "Classify the single most specific Bhagavad Gita guidance trait "
+                    "explicitly expressed or most directly supported by `message`. "
+                    "This dimension may describe a situation, emotion, behavior, inner "
+                    "driver, or aspirational quality. Prefer a precise label over a broad "
+                    "one: for example, use fear_of_failure for fear specifically about "
+                    "failing, result_obsession for fixation on a desired outcome, and "
+                    "career_comparison only for comparison of career progress. Do not infer "
+                    "a virtue merely because it might help the person."
+                ),
+                "criteria": GITA_TRAITS,
+            },
         },
     }
 
@@ -160,7 +181,7 @@ def _classify(
             json=payload,
             timeout=settings.openrouter_timeout_seconds,
         )
-        response.raise_for_status()
+        raise_for_provider_status(response)
         return response
 
     provider_started = perf_counter()
@@ -213,6 +234,9 @@ def _classify(
     root_conflict, conflict_confidence = _choice(
         answers, "root_conflict", ROOT_CONFLICTS
     )
+    primary_trait, trait_confidence = _choice(
+        answers, "primary_trait", GITA_TRAITS
+    )
     scope_probability = float(scope_probability)
     threshold = settings.classification_scope_threshold
     if scope_probability >= threshold:
@@ -228,6 +252,7 @@ def _classify(
         "primary_situation": situation_confidence,
         "primary_emotion": emotion_confidence,
         "root_conflict": conflict_confidence,
+        "primary_trait": trait_confidence,
     }
     low_confidence_fields = tuple(
         field
@@ -244,6 +269,8 @@ def _classify(
         primary_emotion_confidence=emotion_confidence,
         root_conflict=root_conflict,
         root_conflict_confidence=conflict_confidence,
+        primary_trait=primary_trait,
+        primary_trait_confidence=trait_confidence,
         needs_review=bool(low_confidence_fields),
         low_confidence_fields=low_confidence_fields,
         provider_request_id=data.get("id"),

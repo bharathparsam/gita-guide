@@ -57,3 +57,64 @@ def test_upstash_backend_uses_rest_environment_names(
         assert settings.upstash_redis_rest_token == "test-token"
     finally:
         get_settings.cache_clear()
+
+
+def test_guidance_api_requires_explicit_release_or_private_beta_approval() -> None:
+    with pytest.raises(ValueError, match="release approval or an explicit private beta"):
+        ApiSettings(
+            api_key="test",
+            guidance_api_enabled=True,
+            guidance_release_approved=False,
+        )
+
+
+def test_guidance_api_allows_authenticated_private_beta() -> None:
+    settings = ApiSettings(
+        api_key="test",
+        guidance_api_enabled=True,
+        guidance_release_approved=False,
+        guidance_private_beta_enabled=True,
+    )
+
+    assert settings.guidance_private_beta_enabled is True
+
+
+def test_private_beta_never_runs_without_api_authentication() -> None:
+    with pytest.raises(ValueError, match="APP_API_KEY"):
+        ApiSettings(api_key=None, guidance_private_beta_enabled=True)
+
+
+def test_generation_attempt_budget_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENVIRONMENT", "development")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("GENERATION_MAX_ATTEMPTS", "5")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValueError, match="GENERATION_MAX_ATTEMPTS"):
+            get_settings()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_openrouter_generation_settings_are_independent_from_jev_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENVIRONMENT", "development")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("OPENROUTER_MODEL", "typesafe/jev-1.13")
+    monkeypatch.setenv(
+        "OPENROUTER_GENERATION_MODEL", "google/gemma-4-31b-it"
+    )
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+        assert settings.openrouter_model == "typesafe/jev-1.13"
+        assert (
+            settings.openrouter_generation_model
+            == "google/gemma-4-31b-it"
+        )
+        assert settings.openrouter_generation_url == "https://openrouter.ai/api/v1"
+    finally:
+        get_settings.cache_clear()

@@ -4,6 +4,7 @@ import re
 import secrets
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -16,7 +17,11 @@ from app.api.middleware import RequestBoundaryMiddleware
 from app.api.models import (
     ClassificationRequest,
     ClassificationResponse,
+    ConversationSummaryRequest,
+    ConversationSummaryResponse,
     ErrorResponse,
+    GuidanceApiResponse,
+    GuidanceRequest,
     HealthResponse,
 )
 from app.api.service import PhaseOneService, build_phase_one_service
@@ -29,6 +34,17 @@ from app.guardrails.input_safety import (
 )
 from app.observability.logging import configure_logging, get_logger
 from app.services.classification_execution import IdempotencyInProgressError
+from app.retrieval.nvidia_embeddings import NvidiaEmbeddingError
+from app.retrieval.jev_relevance_validator import RetrievalValidationError
+from app.services.retrieval_service import RetrievalNotEligible
+from app.services.generation_service import (
+    AnswerGroundingError,
+    AnswerHelpfulnessError,
+    GenerationError,
+    GenerationNotReadyError,
+    GenerationProviderUnavailableError,
+)
+from app.services.conversation_service import ConversationSummarizationError
 
 
 logger = get_logger("api")
@@ -47,6 +63,7 @@ def _error(
     code: str,
     message: str,
     headers: dict[str, str] | None = None,
+    details: dict[str, Any] | None = None,
 ) -> JSONResponse:
     request_id = _request_id(request)
     response_headers = {"X-Request-ID": request_id}
@@ -59,6 +76,7 @@ def _error(
                 "code": code,
                 "message": message,
                 "request_id": request_id,
+                **({"details": details} if details is not None else {}),
             }
         },
         headers=response_headers,
@@ -295,6 +313,214 @@ def create_app(
             request_id=request_id,
             client_request_id=request.state.client_request_id,
             classification=result,
+        )
+
+    @application.post(
+        "/v1/guidance",
+        response_model=GuidanceApiResponse,
+        responses={
+            400: {"model": ErrorResponse},
+            401: {"model": ErrorResponse},
+            404: {"model": ErrorResponse},
+            409: {"model": ErrorResponse},
+            413: {"model": ErrorResponse},
+            422: {"model": ErrorResponse},
+            502: {"model": ErrorResponse},
+            503: {"model": ErrorResponse},
+        },
+        tags=["guidance"],
+    )
+    async def generate_guidance(
+        payload: GuidanceRequest,
+        request: Request,
+        _: None = Depends(authenticate_api_key),
+        service: PhaseOneService = Depends(get_phase_one_service),
+    ) -> GuidanceApiResponse | JSONResponse:
+        if not request.app.state.api_settings.guidance_api_enabled:
+            return _error(
+                request,
+                status_code=404,
+                code="guidance_not_released",
+                message="The grounded guidance endpoint has not passed its release gates.",
+            )
+        request_id = _request_id(request)
+        idempotency_values = request.headers.getlist("idempotency-key")
+        if len(idempotency_values) > 1:
+            return _error(
+                request,
+                status_code=400,
+                code="invalid_idempotency_key",
+                message="Idempotency-Key must occur at most once.",
+            )
+        idempotency_key = idempotency_values[0] if idempotency_values else None
+        if idempotency_key is not None and not _IDEMPOTENCY_KEY.fullmatch(idempotency_key):
+            return _error(
+                request,
+                status_code=400,
+                code="invalid_idempotency_key",
+                message="Idempotency-Key must be 1-128 URL-safe characters.",
+            )
+        try:
+            result, memory = await run_in_threadpool(
+                service.guide_with_context,
+                payload.message,
+                conversation_context=payload.conversation,
+                request_id=request_id,
+                idempotency_key=idempotency_key,
+            )
+        except InputSafetyEscalation:
+            return _error(
+                request,
+                status_code=422,
+                code="safety_escalation",
+                message="This message requires immediate safety support.",
+            )
+        except InputSafetyRejection:
+            return _error(
+                request,
+                status_code=422,
+                code="input_blocked",
+                message="This message cannot be processed under the input safety policy.",
+            )
+        except RetrievalNotEligible:
+            return _error(
+                request,
+                status_code=422,
+                code="guidance_not_eligible",
+                message="Grounded guidance is not available for this message.",
+            )
+        except GenerationNotReadyError:
+            return _error(
+                request,
+                status_code=422,
+                code="insufficient_evidence",
+                message="No sufficiently grounded passages were available.",
+            )
+        except (GuardrailUnavailableError,):
+            return _error(
+                request,
+                status_code=503,
+                code="safety_service_unavailable",
+                message="A required safety service is temporarily unavailable.",
+            )
+        except AnswerHelpfulnessError as exc:
+            validation = exc.validation
+            details = {
+                "stage": "answer_validation",
+                "failed_dimensions": list(validation.failed_dimensions),
+                "scores": {
+                    "faithfulness": validation.faithfulness_probability,
+                    "citation_coverage": validation.citation_coverage_probability,
+                    "helpfulness": validation.helpfulness_probability,
+                    "agency": validation.agency_probability,
+                },
+                "fallback_trait": exc.trait_id,
+            }
+            return _error(
+                request,
+                status_code=422,
+                code="guidance_not_helpful",
+                message="Live guidance was safe but did not meet the helpfulness target.",
+                details=details,
+            )
+        except AnswerGroundingError as exc:
+            validation = exc.validation
+            details = None
+            if resolved_api_settings.environment != "production" and validation is not None:
+                details = {
+                    "stage": "answer_validation",
+                    "failed_dimensions": list(validation.failed_dimensions),
+                    "scores": {
+                        "faithfulness": validation.faithfulness_probability,
+                        "citation_coverage": validation.citation_coverage_probability,
+                        "helpfulness": validation.helpfulness_probability,
+                        "agency": validation.agency_probability,
+                    },
+                }
+            return _error(
+                request,
+                status_code=502,
+                code="guidance_failed",
+                message="Grounded guidance did not pass the final quality check.",
+                details=details,
+            )
+        except GenerationProviderUnavailableError:
+            return _error(
+                request,
+                status_code=503,
+                code="generation_service_unavailable",
+                message="The guidance provider is temporarily unavailable. Please try again shortly.",
+                headers={"Retry-After": "2"},
+            )
+        except (ClassificationError, NvidiaEmbeddingError, RetrievalValidationError, GenerationError):
+            return _error(
+                request,
+                status_code=502,
+                code="guidance_failed",
+                message="Grounded guidance could not be produced safely.",
+            )
+        except IdempotencyConflict:
+            return _error(
+                request,
+                status_code=409,
+                code="idempotency_conflict",
+                message="The idempotency key was already used for another request.",
+            )
+        except IdempotencyInProgressError:
+            return _error(
+                request,
+                status_code=409,
+                code="idempotency_in_progress",
+                message="An identical request is still being processed.",
+                headers={"Retry-After": "1"},
+            )
+        return GuidanceApiResponse(
+            request_id=request_id,
+            client_request_id=request.state.client_request_id,
+            result=result,
+            conversation=memory.context,
+            summary_updated=memory.summary_updated,
+            summary_deferred=memory.summary_deferred,
+            summarized_turn_count=memory.summarized_turn_count,
+        )
+
+    @application.post(
+        "/v1/conversations/summarize",
+        response_model=ConversationSummaryResponse,
+        responses={
+            401: {"model": ErrorResponse},
+            413: {"model": ErrorResponse},
+            422: {"model": ErrorResponse},
+            502: {"model": ErrorResponse},
+        },
+        tags=["conversation"],
+    )
+    async def summarize_conversation(
+        payload: ConversationSummaryRequest,
+        request: Request,
+        _: None = Depends(authenticate_api_key),
+        service: PhaseOneService = Depends(get_phase_one_service),
+    ) -> ConversationSummaryResponse | JSONResponse:
+        request_id = _request_id(request)
+        try:
+            memory = await run_in_threadpool(
+                service.summarize_conversation,
+                payload.conversation,
+                request_id=request_id,
+            )
+        except ConversationSummarizationError:
+            return _error(
+                request,
+                status_code=502,
+                code="conversation_summarization_failed",
+                message="Conversation memory could not be summarized.",
+            )
+        return ConversationSummaryResponse(
+            request_id=request_id,
+            client_request_id=request.state.client_request_id,
+            conversation=memory.context,
+            summary_updated=memory.summary_updated,
+            summarized_turn_count=memory.summarized_turn_count,
         )
 
     return application

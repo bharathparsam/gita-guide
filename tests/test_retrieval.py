@@ -37,6 +37,19 @@ def classification() -> ClassificationResult:
     )
 
 
+def anger_classification() -> ClassificationResult:
+    return ClassificationResult(
+        in_scope=True,
+        in_scope_probability=0.95,
+        primary_situation="anger",
+        primary_situation_confidence=0.9,
+        primary_emotion="anger",
+        primary_emotion_confidence=0.9,
+        root_conflict="lack_of_self_control",
+        root_conflict_confidence=0.9,
+    )
+
+
 def artifacts(tmp_path: Path) -> tuple[Path, Path, Path]:
     chunks = [
         {
@@ -127,9 +140,42 @@ def test_retrieval_chain_uses_phase_one_classification(tmp_path: Path) -> None:
 
     assert output["documents"][0].metadata["chapter"] == 2
     assert "Primary situation: outcome anxiety" in output["retrieval_query"]
+    assert "concept expansion (gita-concepts-v4)" in output["retrieval_query"]
     assert "Root conflict: attachment to results" in build_classification_query(
         "I fear failing", classification()
     )
+
+
+def test_anger_query_expands_toward_safe_conduct_evidence() -> None:
+    query = build_classification_query(
+        "How can I act well when I feel angry?", anger_classification()
+    )
+
+    assert "concept expansion (gita-concepts-v4)" in query
+    assert "non-injury" in query
+    assert "kindliness" in query
+    assert "non-vexing" in query
+    assert "beneficial" in query
+
+
+def test_retrieval_query_includes_only_confident_primary_trait() -> None:
+    with_trait = classification().model_copy(
+        update={
+            "primary_trait": "result_obsession",
+            "primary_trait_confidence": 0.92,
+        }
+    )
+    query = build_classification_query("I only think about the result", with_trait)
+    assert "Primary Gita trait: result obsession" in query
+
+    low_confidence = with_trait.model_copy(
+        update={
+            "needs_review": True,
+            "low_confidence_fields": ("primary_trait",),
+        }
+    )
+    query = build_classification_query("I only think about the result", low_confidence)
+    assert "Primary Gita trait" not in query
 
 
 def test_retriever_rejects_artifacts_with_wrong_checksum(tmp_path: Path) -> None:

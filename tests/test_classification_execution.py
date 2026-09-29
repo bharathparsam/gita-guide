@@ -30,6 +30,8 @@ def result(**overrides: Any) -> ClassificationResult:
         "primary_emotion_confidence": 0.91,
         "root_conflict": "attachment_to_results",
         "root_conflict_confidence": 0.88,
+        "primary_trait": "result_obsession",
+        "primary_trait_confidence": 0.9,
     }
     values.update(overrides)
     return ClassificationResult(**values)
@@ -39,8 +41,8 @@ def context() -> ClassificationCacheKeyContext:
     return ClassificationCacheKeyContext(
         tenant_id="tenant-1",
         model_version="jev-1.13",
-        taxonomy_version="1.0",
-        prompt_version="jev-prompt-v1",
+        taxonomy_version="2.0",
+        prompt_version="jev-prompt-v2",
         confidence_threshold=0.6,
         scope_threshold=0.5,
     )

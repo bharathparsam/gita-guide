@@ -31,8 +31,10 @@ def main() -> int:
                     "rank": rank,
                     "chapter": document.metadata["chapter"],
                     "verse": document.metadata["verse_label"],
+                    "section": document.metadata.get("section", "translation"),
+                    "content_author": document.metadata.get("content_author"),
                     "score": round(document.metadata["similarity_score"], 6),
-                    "translation": document.page_content,
+                    "content": document.page_content,
                     "source_pdf_page": document.metadata["source_pdf_page"],
                 }
                 for rank, document in enumerate(documents, start=1)

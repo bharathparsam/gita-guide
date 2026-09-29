@@ -6,11 +6,16 @@ from app.reliability.resilience import (
     RetryPolicy,
     call_with_resilience,
 )
+from app.reliability.http import (
+    TransientProviderHttpError,
+    raise_for_provider_status,
+)
 
 __all__ = [
     "CircuitBreaker",
     "CircuitBreakerOpenError",
     "RetryPolicy",
+    "TransientProviderHttpError",
     "call_with_resilience",
+    "raise_for_provider_status",
 ]
-

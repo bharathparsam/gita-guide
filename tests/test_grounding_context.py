@@ -57,3 +57,46 @@ def test_grounding_context_runs_classification_and_retrieval_under_one_request()
             (("status", "completed"),),
         )
     ] == 1
+
+
+def test_grounding_context_keeps_current_message_separate_from_retrieval_context() -> None:
+    classification = ClassificationResult(
+        in_scope=True,
+        in_scope_probability=0.95,
+        primary_situation="confusion",
+        primary_situation_confidence=0.9,
+        primary_emotion="confusion",
+        primary_emotion_confidence=0.9,
+        root_conflict="duty_conflict",
+        root_conflict_confidence=0.9,
+    )
+    retrieval = RetrievalResult(
+        source="retriever",
+        candidate_count=0,
+        validation_model="test-validator",
+        validation_threshold=0.65,
+        ready_for_generation=False,
+        chunks=(),
+    )
+    observed: dict[str, str] = {}
+
+    def classify_current(state):
+        observed["classification_message"] = state["message"]
+        return {**state, "classification": classification}
+
+    def retrieve_contextual(state):
+        observed["retrieval_message"] = state["retrieval_message"]
+        return {**state, "retrieval": retrieval}
+
+    invoke_grounding_context_chain(
+        RunnableLambda(classify_current),
+        RunnableLambda(retrieve_contextual),
+        "current message",
+        retrieval_message="current message plus bounded history",
+        request_id="request-separated-context",
+    )
+
+    assert observed == {
+        "classification_message": "current message",
+        "retrieval_message": "current message plus bounded history",
+    }

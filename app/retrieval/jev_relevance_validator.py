@@ -16,6 +16,7 @@ from app.reliability import (
     CircuitBreakerOpenError,
     RetryPolicy,
     call_with_resilience,
+    raise_for_provider_status,
 )
 
 
@@ -114,6 +115,9 @@ class JevRetrievalValidator:
                     f"Bhagavad Gita {document.metadata['chapter']}."
                     f"{document.metadata['verse_label']}"
                 ),
+                "verse_speaker": document.metadata.get("speaker"),
+                "section": str(document.metadata.get("section", "translation")),
+                "content_author": document.metadata.get("content_author"),
                 "passage": document.page_content,
             }
             for document in documents
@@ -193,7 +197,7 @@ class JevRetrievalValidator:
                 json=payload,
                 timeout=self.settings.openrouter_timeout_seconds,
             )
-            response.raise_for_status()
+            raise_for_provider_status(response)
             return response
 
         started = perf_counter()

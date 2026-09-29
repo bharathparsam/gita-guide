@@ -2,6 +2,7 @@ pydantic>=2.10,<3
 python-dotenv>=1.0,<2
 requests>=2.32,<3
 langchain>=1.0,<2
+langchain-openai>=1.0,<2
 langsmith>=0.4,<1
 langchain-nvidia-ai-endpoints>=1.4.3,<2
 fastapi>=0.115,<1

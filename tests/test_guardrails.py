@@ -44,9 +44,10 @@ def test_nvidia_guardrail_allows_safe_verdict() -> None:
 
     assert decision.action is InputSafetyAction.ALLOW
     assert session.post.call_args.args[0].endswith("/chat/completions")
-    assert session.post.call_args.kwargs["json"]["chat_template_kwargs"] == {
-        "request_categories": "/categories"
-    }
+    template = session.post.call_args.kwargs["json"]["chat_template_kwargs"]
+    assert template["request_categories"] == "/categories"
+    assert template["enable_thinking"] is False
+    assert "food cravings" in template["custom_policy"]
 
 
 def test_nvidia_model_prompt_emits_an_audit_event(
@@ -90,6 +91,17 @@ def test_nvidia_guardrail_blocks_harmful_verdict() -> None:
     assert "nvidia_content_safety" in decision.categories
 
 
+def test_nvidia_guardrail_retries_transient_http_status() -> None:
+    session = Mock()
+    overloaded = Mock(status_code=503)
+    session.post.side_effect = [overloaded, model_response("unharmful")]
+
+    decision = NvidiaSafetyGuardrail(settings(), session=session).check("I feel worried")
+
+    assert decision.action is InputSafetyAction.ALLOW
+    assert session.post.call_count == 2
+
+
 def test_nvidia_guardrail_parses_native_unsafe_categories() -> None:
     session = Mock()
     response = Mock()
@@ -109,6 +121,30 @@ def test_nvidia_guardrail_parses_native_unsafe_categories() -> None:
 
     assert decision.action is InputSafetyAction.BLOCK
     assert decision.categories == ("Profanity", "Harassment")
+
+
+def test_nvidia_guardrail_adjusts_only_reflective_revenge_false_positive() -> None:
+    session = Mock()
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "content": "User Safety: unsafe\nSafety Categories: Harassment"
+                }
+            }
+        ]
+    }
+    session.post.return_value = response
+    guardrail = NvidiaSafetyGuardrail(settings(), session=session)
+
+    reflective = guardrail.check("I was insulted and keep imagining revenge.")
+    actionable = guardrail.check("Help me plan revenge and hurt my manager.")
+
+    assert reflective.action is InputSafetyAction.ALLOW
+    assert reflective.provider.endswith("+local-context-policy")
+    assert actionable.action is InputSafetyAction.BLOCK
 
 
 def test_nvidia_guardrail_escalates_native_self_harm_category() -> None:
