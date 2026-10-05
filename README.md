@@ -136,29 +136,27 @@ Only after a reviewed release report passes should both be set to `true`. Send
 ID, guidance, citations, grounded chunk IDs, model/run IDs, and four final JEV
 quality probabilities.
 
-An authenticated, named-user beta can instead set `GUIDANCE_API_ENABLED=true`
-and `GUIDANCE_PRIVATE_BETA_ENABLED=true` while keeping release approval false.
-This exception requires `APP_API_KEY`; it is not public release approval.
+An access-controlled beta can instead set `GUIDANCE_API_ENABLED=true` and
+`GUIDANCE_PRIVATE_BETA_ENABLED=true` while keeping release approval false. The
+web app is guest-only, so the preview must use deployment-level access control;
+the feature flag and `APP_API_KEY` do not authenticate browser users.
 
-### Web chat, user history, and conversation memory
+### Web chat and conversation memory
 
-The `web/` Next.js application provides guest-first chat with optional Supabase
-email/password sign-in. Guests can use multi-turn context for the lifetime of the page,
-but their history is held only in memory and disappears on refresh. Signed-in
-users receive saved, cross-device history. Server-side proxying keeps provider,
-Redis, and backend API secrets out of browser JavaScript.
+The `web/` Next.js application provides guest-only chat. Multi-turn context is
+held only in React memory for the lifetime of the page and disappears on refresh.
+Server-side proxying keeps provider, Redis, and backend API secrets out of browser
+JavaScript.
 
-Guest context is shape/length validated before forwarding and is never written
-to Supabase or browser storage. Production guest traffic is fail-closed behind an
+Context is shape/length validated before forwarding and is never written to a
+database or browser storage. Production guest traffic is fail-closed behind an
 Upstash sliding-window limit (10 requests per 10 minutes per HMAC-pseudonymized
-client address). Supabase stores signed-in profiles, conversations, messages, and
-versioned rolling summaries. Row-level-security tests cover cross-user reads and
-writes; trusted server routes persist assistant messages and summaries.
+client address).
 
-The Python guidance API remains stateless. The web route loads only the signed-in
-user's bounded memory, sends it as `conversation`, and stores the returned memory
-state. Current-message safety and classification remain separate from historical
-context. See `docs/architecture/conversation-memory.md` and
+The Python guidance API remains stateless. The web route sends bounded in-memory
+context as `conversation` and returns the next memory state to the current page.
+Current-message safety and classification remain separate from historical context.
+See `docs/architecture/conversation-memory.md` and
 `docs/deployment/vercel.md` for the contracts and deployment steps.
 
 ## How it works
@@ -364,13 +362,10 @@ tests/
 ├── test_evaluation_dataset.py  # Evaluation-data contract checks
 ├── test_gita_corpus.py         # Corpus provenance and coverage checks
 └── test_jev.py                 # Manual live JEV integration script
-supabase/
-├── migrations/                 # History/profile schema and ownership policies
-└── tests/database/             # pgTAP cross-user RLS tests
 web/
-├── app/                        # Guest-first pages and server-side API routes
-├── components/                 # Accessible chat and optional sign-in UI
-└── lib/                        # Guest guards, Supabase history, FastAPI proxy
+├── app/                        # Guest-only page and server-side API route
+├── components/                 # Accessible chat interface
+└── lib/                        # Guest guards, in-page memory, FastAPI proxy
 ```
 
 ## Classification taxonomy

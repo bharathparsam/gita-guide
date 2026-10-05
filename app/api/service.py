@@ -409,6 +409,9 @@ class ManagedPhaseOneService:
             timeout=self._settings.openrouter_generation_timeout_seconds,
             top_p=0.9,
             max_retries=0,
+            extra_body={
+                "reasoning": {"enabled": False},
+            },
         )
         generator = GroundedGuidanceGenerator(
             model,
@@ -450,6 +453,9 @@ class ManagedPhaseOneService:
             timeout=self._settings.openrouter_generation_timeout_seconds,
             top_p=1.0,
             max_retries=self._settings.provider_max_attempts - 1,
+            extra_body={
+                "reasoning": {"enabled": False},
+            },
         )
         summarizer = ConversationSummarizer(
             model,

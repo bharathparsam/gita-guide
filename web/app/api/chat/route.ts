@@ -1,17 +1,7 @@
 import { NextResponse } from "next/server";
-import {
-  ensureConversation,
-  findCompletedRequest,
-  loadContext,
-  persistExchange,
-} from "@/lib/server/history";
 import { GuidanceProxyError, requestGuidance, type GuidanceContext } from "@/lib/server/guidance";
-import { hasSupabaseAuthCookie } from "@/lib/server/auth-cookie";
 import { parseGuestContext } from "@/lib/server/guest-context";
 import { limitGuestRequest } from "@/lib/server/guest-rate-limit";
-import { titleFromMessage } from "@/lib/conversations";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
 import { gitaTraits } from "@/lib/traits-dataset";
 import { createCuratedGuidanceFallback } from "@/lib/server/guidance-fallback";
 
@@ -84,7 +74,7 @@ function failureResponse(caught: unknown) {
     caught instanceof GuidanceProxyError
       ? caught
       : new GuidanceProxyError(
-          "Conversation history or guidance is temporarily unavailable.",
+          "Guidance is temporarily unavailable.",
           503,
           "service_unavailable",
         );
@@ -146,17 +136,6 @@ function helpfulnessFallbackResponse(
   );
 }
 
-async function authenticatedUserId(request: Request): Promise<string | null> {
-  if (!hasSupabaseAuthCookie(request.headers.get("cookie"))) return null;
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.auth.getUser();
-    return error ? null : data.user?.id || null;
-  } catch {
-    return null;
-  }
-}
-
 async function guestResponse(request: Request, input: {
   message: string;
   conversationId: string;
@@ -216,93 +195,17 @@ export async function POST(request: Request) {
     return invalid("A valid client request ID is required.");
   }
 
-  const userId = await authenticatedUserId(request);
-  if (!userId) {
-    const context = parseGuestContext(body.guestContext);
-    if (!context.ok) return invalid(context.message);
-    try {
-      return await guestResponse(request, {
-        message,
-        conversationId: body.conversationId,
-        clientRequestId: body.clientRequestId,
-        context: context.value,
-      });
-    } catch (caught) {
-      const fallback = helpfulnessFallbackResponse(caught, context.value);
-      if (fallback) return fallback;
-      return failureResponse(caught);
-    }
-  }
-
-  let fallbackContext: GuidanceContext = { summary: null, recentTurns: [] };
+  const context = parseGuestContext(body.guestContext);
+  if (!context.ok) return invalid(context.message);
   try {
-    const admin = createAdminClient();
-    await ensureConversation(admin, {
-      conversationId: body.conversationId,
-      userId,
-      title: titleFromMessage(message),
-    });
-
-    const prior = await findCompletedRequest(admin, userId, body.clientRequestId);
-    if (prior) {
-      return NextResponse.json(
-        {
-          requestId: prior.requestId,
-          message: prior,
-          memory: {
-            summary: null,
-            recentTurns: [],
-            summaryUpdated: false,
-            summaryDeferred: false,
-          },
-        },
-        {
-          headers: {
-            "Cache-Control": "private, no-store",
-            ...(prior.requestId ? { "X-Request-ID": prior.requestId } : {}),
-          },
-        },
-      );
-    }
-
-    const contextBefore = await loadContext(admin, userId, body.conversationId);
-    fallbackContext = {
-      summary: contextBefore.summary,
-      recentTurns: contextBefore.recentTurns,
-    };
-    const guidance = await requestGuidance({
+    return await guestResponse(request, {
       message,
-      clientRequestId: body.clientRequestId,
-      idempotencyKey: `web:${userId}:${body.conversationId}:${body.clientRequestId}`,
-      context: {
-        summary: contextBefore.summary,
-        recentTurns: contextBefore.recentTurns,
-      },
-    });
-    const result = formatGuidance(guidance);
-    await persistExchange(admin, {
-      userId,
       conversationId: body.conversationId,
-      clientMessageId: body.clientRequestId,
-      userContent: message,
-      assistantMessage: result.message,
-      model: guidance.result.model || "configured-generation-model",
-      quality: result.quality,
-      contextBefore,
-      memory: result.memory,
+      clientRequestId: body.clientRequestId,
+      context: context.value,
     });
-
-    return NextResponse.json(
-      { requestId: guidance.request_id, ...result },
-      {
-        headers: {
-          "Cache-Control": "private, no-store",
-          "X-Request-ID": guidance.request_id,
-        },
-      },
-    );
   } catch (caught) {
-    const fallback = helpfulnessFallbackResponse(caught, fallbackContext);
+    const fallback = helpfulnessFallbackResponse(caught, context.value);
     if (fallback) return fallback;
     return failureResponse(caught);
   }

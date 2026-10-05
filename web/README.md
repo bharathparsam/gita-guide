@@ -1,9 +1,9 @@
 # Gita Guide web
 
-The Next.js frontend opens directly into a responsive guest chat. Supabase
-email/password sign-in is optional and unlocks saved, cross-device history. Its
+The Next.js frontend opens directly into a responsive guest-only chat. Its
 server-only `/api/chat` route forwards requests to the Python `/v1/guidance`
-endpoint without exposing `APP_API_KEY` to the browser.
+endpoint without exposing `APP_API_KEY` to the browser. Conversations live only
+in React state and are cleared when the page refreshes.
 While a request is pending, the chat keeps its layout stable and announces bounded,
 accessible progress messages for understanding, retrieval, drafting, and final
 grounding/safety checks. These are elapsed-time indicators rather than server-streamed
@@ -30,32 +30,21 @@ npm install
 npm run dev
 ```
 
-Configure Supabase Authentication with both
-`http://localhost:3000/auth/callback` and
-`http://localhost:3000/auth/callback?next=/reset-password` as allowed redirect
-URLs. The Python API must also be running and its guidance
-release flags enabled. In development only, guest requests can run without
+The Python API must also be running and its guidance release flags enabled. In
+development only, guest requests can run without
 Upstash rate-limit variables; production fails guest requests closed unless all
 three guest abuse-protection variables are configured.
 
-Apply and verify the history migration using the repository's
-[Supabase setup guide](../docs/deployment/supabase.md).
-
-Authenticated conversation history is stored in Supabase and loaded through
-server-only route handlers. Guest history and rolling memory live only in React
-state and disappear on refresh; they are never written to Supabase or browser
-storage. Guest memory is schema-validated and bounded before it reaches the
-Python service. The browser never receives the service-role key, Redis token, or
-Python API key.
+Rolling memory lives only in React state and disappears on refresh; it is never
+written to a database or browser storage. The memory payload is schema-validated
+and bounded before it reaches the Python service. The browser never receives the
+Redis token or Python API key.
 
 ## Deploy
 
 Set the five backend/guest-protection values from `.env.example` in Vercel.
-Add the three Supabase values only when optional saved history is enabled.
-`APP_API_KEY`, `BACKEND_API_URL`, `SUPABASE_SERVICE_ROLE_KEY`, all Upstash values,
-and `GUEST_RATE_LIMIT_SECRET` are server-only. If Supabase is enabled, add the
-production `/auth/callback` and password-recovery callback URLs to its redirect
-allowlist.
+`APP_API_KEY`, `BACKEND_API_URL`, all Upstash values, and
+`GUEST_RATE_LIMIT_SECRET` are server-only.
 
 ```bash
 npm test

@@ -1,10 +1,9 @@
 # Conversation memory
 
 Conversation memory is a bounded, stateless API contract. The API does not own
-users or persist chat history. For signed-in users, Supabase stores the returned
-context and supplies it on the next request. For guests, the web client keeps it
-only in React memory for the lifetime of the current page. Refreshing or closing
-the page discards guest messages, summary, and recent turns.
+users or persist chat history. The guest-only web client keeps context in React
+memory for the lifetime of the current page. Refreshing or closing the page
+discards messages, summary, and recent turns.
 
 ## Safety boundary
 
@@ -18,9 +17,8 @@ Each turn is capped at 2,000 characters. Turns must be complete alternating
 `user`/`assistant` exchanges. Invisible control and bidirectional formatting
 characters are removed before prompt construction.
 
-The Next.js proxy never accepts client history for an authenticated user; it
-loads trusted context from Supabase. An unauthenticated request must provide the
-bounded guest context contract and is rate-limited before any provider call.
+The Next.js proxy accepts only the bounded guest context contract and rate-limits
+the request before any provider call.
 
 ## Guidance contract
 
@@ -41,8 +39,8 @@ bounded guest context contract and is rate-limited before any provider call.
 ```
 
 The response includes the validated guidance plus the next `conversation` value,
-`summary_updated`, `summary_deferred`, and `summarized_turn_count`. Persist the
-returned conversation context as an opaque versioned object.
+`summary_updated`, `summary_deferred`, and `summarized_turn_count`. The web client
+keeps the returned context only for the current page session.
 
 By default, summarization starts at six recent turns and retains the latest two.
 The same configured OpenRouter generation model is used with temperature zero. If an

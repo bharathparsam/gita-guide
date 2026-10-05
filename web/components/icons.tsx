@@ -30,10 +30,6 @@ export function BookIcon(props: IconProps) {
   return <Icon {...props}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" /></Icon>;
 }
 
-export function LogOutIcon(props: IconProps) {
-  return <Icon {...props}><path d="M10 17l5-5-5-5M15 12H3" /><path d="M14 3h4a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3h-4" /></Icon>;
-}
-
 export function CloseIcon(props: IconProps) {
   return <Icon {...props}><path d="m6 6 12 12M18 6 6 18" /></Icon>;
 }

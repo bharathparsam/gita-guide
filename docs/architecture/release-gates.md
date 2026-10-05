@@ -4,10 +4,11 @@ The public guidance endpoint is disabled by default. Enabling it requires both
 `GUIDANCE_API_ENABLED=true` and `GUIDANCE_RELEASE_APPROVED=true`. The second flag
 must be set only from a reviewed, passing `guidance_release_gate` report.
 
-A named-user private beta is a separate, temporary risk exception:
+A deployment-protected private beta is a separate, temporary risk exception:
 `GUIDANCE_API_ENABLED=true`, `GUIDANCE_PRIVATE_BETA_ENABLED=true`, and
-`GUIDANCE_RELEASE_APPROVED=false`. It requires authenticated web users and the
-server-only API key, and must not be used for public traffic.
+`GUIDANCE_RELEASE_APPROVED=false`. The guest-only web app has no user accounts,
+so the hosting platform must restrict preview access. The server-only API key
+protects the backend but is not browser-user authentication.
 
 ## Gate sequence
 

@@ -1,9 +1,6 @@
 "use client";
 
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { createConversation, titleFromMessage } from "@/lib/conversations";
 import {
   createOfflineReflection,
@@ -20,9 +17,8 @@ import type {
   TraitReflection,
   TraitType,
 } from "@/lib/types";
-import { BookIcon, CloseIcon, LeafIcon, LogOutIcon, MenuIcon, PlusIcon, SendIcon, SparkIcon } from "@/components/icons";
+import { BookIcon, CloseIcon, LeafIcon, MenuIcon, PlusIcon, SendIcon, SparkIcon } from "@/components/icons";
 
-type Props = { user: { id: string; email: string } | null };
 type ApiError = { error?: { code?: string; message?: string; requestId?: string } };
 
 class ChatRequestError extends Error {
@@ -117,11 +113,8 @@ function TraitReflectionCard({ reflection, citations }: { reflection: TraitRefle
   );
 }
 
-export function ChatApp({ user }: Props) {
-  const router = useRouter();
-  const isAuthenticated = Boolean(user);
-  const userLabel = user?.email || "Guest";
-  const userInitial = user?.email.slice(0, 1).toUpperCase() || "G";
+export function ChatApp() {
+  const userInitial = "G";
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState("");
   const [draft, setDraft] = useState("");
@@ -141,38 +134,11 @@ export function ChatApp({ user }: Props) {
   const offlineToggleRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (!user) {
-      const initial = [createConversation()];
-      setConversations(initial);
-      setActiveId(initial[0].id);
-      setReady(true);
-      return;
-    }
-    let active = true;
-    void fetch("/api/conversations", { cache: "no-store" })
-      .then(async (response) => {
-        const body = await response.json();
-        if (!response.ok) throw new Error(body?.error?.message || "History is unavailable.");
-        return body.conversations as Conversation[];
-      })
-      .then((stored) => {
-        if (!active) return;
-        const initial = stored.length ? stored : [createConversation()];
-        setConversations(initial);
-        setActiveId(initial[0].id);
-      })
-      .catch((caught) => {
-        if (!active) return;
-        const initial = [createConversation()];
-        setConversations(initial);
-        setActiveId(initial[0].id);
-        setError(caught instanceof Error ? caught.message : "History is unavailable.");
-      })
-      .finally(() => {
-        if (active) setReady(true);
-      });
-    return () => { active = false; };
-  }, [user]);
+    const initial = [createConversation()];
+    setConversations(initial);
+    setActiveId(initial[0].id);
+    setReady(true);
+  }, []);
 
   const active = useMemo(
     () => conversations.find((conversation) => conversation.id === activeId) || conversations[0],
@@ -310,12 +276,10 @@ export function ChatApp({ user }: Props) {
           message,
           conversationId: target.id,
           clientRequestId,
-          ...(!isAuthenticated ? {
-            guestContext: {
-              summary: target.summary,
-              recentTurns: target.recentTurns,
-            },
-          } : {}),
+          guestContext: {
+            summary: target.summary,
+            recentTurns: target.recentTurns,
+          },
         }),
       });
       const body = (await response.json().catch(() => null)) as ChatApiResult | ApiError | null;
@@ -368,26 +332,15 @@ export function ChatApp({ user }: Props) {
     }
   }
 
-  async function signOut() {
-    try {
-      const supabase = createClient();
-      const { error: signOutError } = await supabase.auth.signOut({ scope: "local" });
-      if (signOutError) throw signOutError;
-      window.location.assign("/");
-    } catch {
-      setError("Sign-out could not be completed. Please try again.");
-    }
-  }
-
   if (!ready || !active) return <main className="app-loading" aria-live="polite"><span className="loader" /><span>Preparing your space…</span></main>;
 
   return (
     <div className="chat-shell">
-      {sidebarOpen ? <button className="sidebar-scrim" aria-label="Close conversation history" onClick={() => setSidebarOpen(false)} /> : null}
-      <aside className={`sidebar ${sidebarOpen ? "sidebar--open" : ""}`} aria-label="Conversation history">
+      {sidebarOpen ? <button className="sidebar-scrim" aria-label="Close reflection sessions" onClick={() => setSidebarOpen(false)} /> : null}
+      <aside className={`sidebar ${sidebarOpen ? "sidebar--open" : ""}`} aria-label="Reflection sessions">
         <div className="sidebar-header">
           <a href="#chat-main" className="brand"><span className="brand-mark"><BookIcon /></span><span>Gita Guide</span></a>
-          <button className="icon-button sidebar-close" type="button" onClick={() => setSidebarOpen(false)} aria-label="Close conversation history"><CloseIcon /></button>
+          <button className="icon-button sidebar-close" type="button" onClick={() => setSidebarOpen(false)} aria-label="Close reflection sessions"><CloseIcon /></button>
         </div>
         <button className="new-chat-button" type="button" onClick={newChat}><PlusIcon />New reflection</button>
         <nav className="conversation-list" aria-label="Your reflections">
@@ -399,18 +352,13 @@ export function ChatApp({ user }: Props) {
           ))}
         </nav>
         <div className="sidebar-footer">
-          <div className="user-summary"><span className="avatar">{userInitial}</span><span><strong>{userLabel}</strong><small>{isAuthenticated ? "Private history synced" : "Not saved to your history"}</small></span></div>
-          {isAuthenticated ? (
-            <button className="icon-button" type="button" onClick={signOut} aria-label="Sign out"><LogOutIcon /></button>
-          ) : (
-            <Link className="save-chat-link" href="/login">Sign in to save</Link>
-          )}
+          <div className="user-summary"><span className="avatar">{userInitial}</span><span><strong>Guest session</strong><small>Cleared when this page refreshes</small></span></div>
         </div>
       </aside>
 
       <main className="chat-main" id="chat-main">
         <header className="mobile-header">
-          <button className="icon-button" type="button" onClick={() => setSidebarOpen(true)} aria-label="Open conversation history" aria-expanded={sidebarOpen}><MenuIcon /></button>
+          <button className="icon-button" type="button" onClick={() => setSidebarOpen(true)} aria-label="Open reflection sessions" aria-expanded={sidebarOpen}><MenuIcon /></button>
           <span className="mobile-brand"><BookIcon />Gita Guide</span>
           <button className="icon-button" type="button" onClick={newChat} aria-label="Start a new reflection"><PlusIcon /></button>
         </header>
@@ -530,7 +478,7 @@ export function ChatApp({ user }: Props) {
             <textarea ref={textAreaRef} id="message" rows={1} maxLength={4000} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} disabled={sending} placeholder="Share what you are facing…" />
             <button className="send-button" type="submit" disabled={sending || !draft.trim()} aria-label="Send message"><SendIcon /></button>
           </form>
-          <p className="composer-note">{offlineMode ? "Offline reflections are not saved and use local keyword matching. " : isAuthenticated ? "Your history is saved privately. " : "Guest history is cleared from this browser on refresh. "}Gita Guide can make mistakes; consider the cited verses and use your own judgment.</p>
+          <p className="composer-note">{offlineMode ? "Offline reflections are not saved and use local keyword matching. " : "This guest session is not saved and clears on refresh. "}Gita Guide can make mistakes; consider the cited verses and use your own judgment.</p>
         </div>
       </main>
     </div>

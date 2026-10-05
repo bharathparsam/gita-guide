@@ -65,7 +65,7 @@ export async function limitGuestRequest(request: Request): Promise<GuestRateLimi
     return {
       allowed: false,
       status: 429,
-      message: "You have reached the guest limit. Please wait a few minutes or sign in to continue.",
+      message: "You have reached the request limit. Please wait a few minutes and try again.",
       remaining: result.remaining,
       reset: result.reset,
     };

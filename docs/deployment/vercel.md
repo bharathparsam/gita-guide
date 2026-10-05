@@ -21,36 +21,11 @@ embeddings and metadata in the backend function bundle. The approximately 6 MB
 corpus is read-only and safe to bundle; it does not require a vector database
 at this scale.
 
-## 1. Apply the history schema
+The web app is guest-only. Conversation context exists only in the browser
+page's memory and is not persisted. The Python service remains stateless: it
+receives bounded context and returns the next rolling-memory state.
 
-Follow [the Supabase setup guide](supabase.md). For the recommended tracked
-migration workflow, initialize and authenticate the CLI, link the intended
-project, preview the migration, and then apply it:
-
-```bash
-supabase init
-supabase login
-supabase link --project-ref YOUR_PROJECT_REF
-supabase db push --dry-run
-supabase db push
-supabase start
-supabase test db
-```
-
-The migration creates `profiles`, `conversations`, `messages`, and
-`conversation_summaries`. Ownership is enforced with row-level security and
-composite foreign keys. Browser users can read only their own data, append only
-`user` messages, and cannot forge assistant messages or summaries.
-
-Do not put `SUPABASE_SERVICE_ROLE_KEY` in the browser or in any variable whose
-name starts with `NEXT_PUBLIC_`. The service role bypasses row-level security.
-
-For signed-in users, the Next.js server routes persist and load conversation
-history after verifying the Supabase session. Guest context exists only in the
-browser page's memory and is not persisted. The Python service remains stateless:
-it receives bounded context and returns the next rolling-memory state.
-
-## 2. Create the backend project
+## 1. Create the backend project
 
 1. Import the Git repository in Vercel.
 2. Set the project root to the repository root.
@@ -73,7 +48,7 @@ Do not use `vercel env pull` into a tracked file. Do not expose `APP_API_KEY` to
 browser JavaScript. The frontend should call its own server-side proxy, which
 adds the API key when calling the backend.
 
-## 3. Keep the release gate truthful
+## 2. Keep the release gate truthful
 
 The checked-in guidance release report is not approved. Therefore the template
 keeps both flags false:
@@ -92,7 +67,7 @@ only the Next.js server proxy holds it. Guest access makes the frontend public,
 so configure and verify the Upstash guest rate limit before enabling it. Remove
 the beta exception or pass the complete release gates before a general release.
 
-## 4. Understand the filesystem boundary
+## 3. Understand the filesystem boundary
 
 The packaged Gita corpus is read-only, which is compatible with Vercel. Runtime
 files are not durable. `/tmp` may disappear between invocations and instances.
@@ -108,7 +83,7 @@ storage and define retention, access and deletion policy. Do not silently copy
 raw user messages into an audit store; retain request IDs, decisions and keyed
 fingerprints unless a reviewed policy requires content.
 
-## 5. Verify the backend
+## 4. Verify the backend
 
 Local entrypoint smoke test:
 
@@ -134,21 +109,18 @@ Confirm that the response and platform logs contain the same `X-Request-ID`.
 Then locate that request ID in LangSmith and verify that no secret appears in
 trace inputs, outputs or metadata.
 
-## 6. Deploy the frontend project
+## 5. Deploy the frontend project
 
 Import the same repository again and choose `web/` as the root directory. Add
-the five backend/guest-protection values from `web/.env.example`. Add the three
-Supabase values only when optional saved history is enabled. The frontend
+the five backend/guest-protection values from `web/.env.example`. The frontend
 requires the Upstash REST URL/token plus an independent
 `GUEST_RATE_LIMIT_SECRET`; production guest requests fail closed without them.
-Expose only the optional Supabase project URL and publishable/anon key; never
-expose `APP_API_KEY`, provider keys, Upstash credentials, the guest secret, or
-the Supabase service-role key.
+Never expose `APP_API_KEY`, provider keys, Upstash credentials, or the guest
+secret.
 
 Keep the backend protected by its server-only API key. A guest-enabled frontend
 must be reachable without login, so promote it only after health, anonymous
-rate-limit, optional authentication, request-ID correlation, provider failure,
-and RLS-isolation checks pass.
+rate-limit, request-ID correlation, and provider-failure checks pass.
 
 ## Operational risks to watch
 
@@ -164,5 +136,3 @@ and RLS-isolation checks pass.
   disappear at any time.
 - Guest messages are intentionally page-session-only. They are still processed
   by configured model/observability providers under their retention policies.
-- Supabase history requires the migration and service-role key only for signed-in
-  persistence. Verify cross-user isolation with `supabase test db` before beta.
