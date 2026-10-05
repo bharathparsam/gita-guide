@@ -338,6 +338,35 @@ def test_liveness_survives_service_startup_failure_and_readiness_fails_closed() 
     assert application.state.startup_error_type == "RuntimeError"
 
 
+def test_authenticated_diagnostics_exposes_safe_configuration_failure() -> None:
+    def fail_to_start() -> FakePhaseOneService:
+        raise ValueError("CACHE_HMAC_SECRET must contain at least 32 bytes")
+
+    application = create_app(
+        service_factory=fail_to_start,
+        api_settings=ApiSettings(api_key="secret"),
+    )
+
+    with TestClient(application) as client:
+        unauthorized = client.get("/health/diagnostics")
+        diagnostic = client.get(
+            "/health/diagnostics",
+            headers={"X-API-Key": "secret"},
+        )
+
+    assert unauthorized.status_code == 401
+    assert diagnostic.status_code == 503
+    assert diagnostic.headers["Cache-Control"] == "private, no-store"
+    assert diagnostic.json() == {
+        "status": "not_ready",
+        "startup_error": {
+            "stage": "initialize_phase_one_service",
+            "error_type": "ValueError",
+            "message": "CACHE_HMAC_SECRET must contain at least 32 bytes",
+        },
+    }
+
+
 def test_liveness_survives_invalid_production_api_configuration(
     monkeypatch,
 ) -> None:

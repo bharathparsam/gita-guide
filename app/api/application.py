@@ -128,12 +128,18 @@ def create_app(
         configure_logging()
         service: PhaseOneService | None = None
         application.state.phase_one_service = None
+        application.state.startup_error_stage = None
         application.state.startup_error_type = None
+        application.state.startup_error_message = None
         try:
             if startup_configuration_error is not None:
+                application.state.startup_error_stage = "load_api_settings"
                 application.state.startup_error_type = type(
                     startup_configuration_error
                 ).__name__
+                application.state.startup_error_message = str(
+                    startup_configuration_error
+                )
                 logger.error(
                     "application.configuration.failed",
                     extra={
@@ -150,7 +156,12 @@ def create_app(
                 try:
                     service = resolved_factory()
                 except Exception as exc:
+                    application.state.startup_error_stage = (
+                        "initialize_phase_one_service"
+                    )
                     application.state.startup_error_type = type(exc).__name__
+                    if isinstance(exc, ValueError):
+                        application.state.startup_error_message = str(exc)
                     logger.exception(
                         "application.startup.failed",
                         extra={
@@ -239,6 +250,28 @@ def create_app(
                 message="The service is not ready to receive requests.",
             )
         return HealthResponse(status="ok")
+
+    @application.get(
+        "/health/diagnostics",
+        dependencies=[Depends(authenticate_api_key)],
+        include_in_schema=False,
+    )
+    async def health_diagnostics(request: Request) -> JSONResponse:
+        service = getattr(request.app.state, "phase_one_service", None)
+        if service is not None and service.ready:
+            return JSONResponse(content={"status": "ok", "startup_error": None})
+        startup_error = {
+            "stage": getattr(request.app.state, "startup_error_stage", None),
+            "error_type": getattr(request.app.state, "startup_error_type", None),
+        }
+        message = getattr(request.app.state, "startup_error_message", None)
+        if message:
+            startup_error["message"] = message
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "startup_error": startup_error},
+            headers={"Cache-Control": "private, no-store"},
+        )
 
     @application.get(
         "/metrics",
