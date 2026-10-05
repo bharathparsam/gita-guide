@@ -1,667 +1,381 @@
 # Gita Guide
 
-Gita Guide is an early-stage Python application for giving source-grounded,
-reflective guidance inspired by the Bhagavad Gita. It applies input safety,
-classifies the user's situation and emotional state, retrieves and validates
-relevant verses, and generates citation-checked guidance.
+> A decision-first, source-grounded AI companion for reflective guidance from the Bhagavad Gita.
 
-The current version accepts messages through a CLI or authenticated HTTP API and uses
-[JEV](https://openrouter.ai/typesafe/jev-1.13) through OpenRouter's Decisions API
-to identify:
+Gita Guide turns a human message such as _“I had an argument with my wife and I feel lost”_ into concise, practical guidance that is traceable to specific passages. It does not ask one language model to improvise wisdom and grade its own work. Classification, retrieval, generation, safety, and answer validation are separate stages with explicit contracts and fail-closed boundaries.
 
-- Whether the message is in scope for reflective life guidance
-- The primary life situation
-- The primary emotion
-- The underlying inner conflict
-- The most specific fine-grained Gita guidance trait
+The result is a guest-first chat experience that feels gentle on the surface and behaves like a carefully engineered retrieval system underneath.
 
-The classification, evaluation, safety boundary, cache, audit, metrics, source
-corpus, retrieval, grounded generation, semantic answer validation, and release
-gates are implemented. The CLI continues through filtered and reranked local
-retrieval, validates candidate passages in one OpenRouter/JEV decision, sends the
-best three approved passages to OpenRouter/Gemma, and validates the final answer
-with independent NVIDIA safety and JEV quality checks. The `/v1/guidance` HTTP route exists but returns 404 unless both release
-flags are enabled. The latest measured release report is intentionally not approved.
+## Why this project is different
 
-Phase 1 is implemented as a LangChain pipeline with correlated JSON logs and
-optional LangSmith tracing. In the CLI, classification and retrieval run beneath
-one parent trace; the request ID also correlates every nested application log,
-audit event, cache event, and provider call.
+Most RAG demos stop after vector search and generation. Gita Guide treats those as only two steps in a larger evidence pipeline:
 
-## Requirements
+- **Decision-first understanding.** JEV converts an open-ended message into typed situation, emotion, root-conflict, and Gita-trait decisions with confidence.
+- **A provenance-checked local corpus.** The repository ships verse-aware chunks and a precomputed embedding matrix; runtime search does not depend on a hosted vector database.
+- **Evidence must earn its way into the prompt.** Dense retrieval, curated anchors, MMR diversity, source filters, and an independent JEV relevance decision all run before generation.
+- **The generator is not the judge.** DeepSeek writes the response; JEV independently checks faithfulness, citation coverage, helpfulness, and user agency.
+- **Safety surrounds generation.** Local checks and NVIDIA content-safety rails run at the input and output boundaries.
+- **Conversation memory preserves emotional movement.** A bounded rolling summary and recent turns let the guide recognize transitions such as “I was sad; now I feel hopeful” without storing a user account or durable chat history.
+- **Failure is a product state.** Weak evidence is rejected instead of stretched. The web app can disclose and serve a curated offline reflection rather than returning invented guidance.
+- **Every request is diagnosable.** Request IDs correlate structured logs, provider calls, cache events, audit records, and LangSmith traces without putting raw messages in ordinary logs.
 
-- Python 3.10 or newer
-- An [OpenRouter](https://openrouter.ai/) API key with access to JEV
-- An NVIDIA API key for hosted Nemotron embeddings and content-safety checks
-- Optional: a LangSmith API key for hosted LangChain traces
+## Architecture
 
-## Setup
+```mermaid
+flowchart TD
+    U[Guest message + bounded session context] --> W[Next.js server proxy]
+    W --> S[Local + NVIDIA input safety]
+    S --> C[JEV typed classification]
+    C --> Q[Versioned query expansion]
+    Q --> R[Local cosine retrieval]
+    R --> M[Source filters + MMR + curated anchors]
+    M --> V[JEV passage relevance gate]
+    V -->|approved evidence only| G[DeepSeek V4.1 Flash]
+    G --> O[NVIDIA output safety]
+    G --> A[JEV answer-quality gate]
+    O --> P[Grounded response]
+    A --> P
+    P --> W
 
-Create and activate a virtual environment:
+    REDIS[(Upstash Redis)] -. cache / idempotency / rate limit .- W
+    REDIS -. shared cache .- C
+    REDIS -. validated retrieval metadata .- V
+    TRACE[(LangSmith)] -. trace tree .- S
+    TRACE -. trace tree .- G
+```
+
+The Python API remains stateless. The browser sends a bounded conversation summary and recent complete turns with each request, then replaces its in-memory context with the server’s returned state. Refreshing the page clears the conversation.
+
+## Our custom RAG pipeline
+
+Gita Guide does not delegate retrieval to a generic vector-database wrapper. Its RAG pipeline is built specifically around scripture provenance, verse boundaries, speaker attribution, and the difference between finding a semantically similar passage and finding one that can safely ground advice.
+
+### 1. Build a verifiable corpus
+
+The ingestion pipeline reads the source edition recorded in `data/sources.json`, verifies its SHA-256 checksum, and produces stable, verse-aware chunks. Every chunk carries a source ID, chapter and verse range, speaker, section type, author attribution, source page, and readable Sanskrit sloka where available.
+
+The processed corpus contains 1,860 chunks covering all 700 verses: 653 translation chunks and 1,207 commentary chunks. Translation and commentary remain explicitly separated so commentary cannot accidentally be presented as Krishna’s direct speech.
+
+Passage embeddings are generated offline with `nvidia/nemotron-3-embed-1b`, normalized, checksummed, and committed as a 2,048-dimensional NumPy matrix. At startup the retriever verifies the corpus checksum, vector checksum, row count, dimensionality, and normalization before serving traffic.
+
+### 2. Understand before searching
+
+The retrieval query is more than the last user sentence. It combines:
+
+- the current message, which always remains authoritative;
+- bounded prior conversation context when it changes the meaning of the request;
+- only high-confidence JEV classifications;
+- a versioned mapping from everyday situations to vocabulary used by the Gita corpus.
+
+Low-confidence fields are omitted instead of contaminating the query. This is important for short human messages, where one incorrect label can otherwise dominate dense retrieval.
+
+### 3. Retrieve locally, then diversify
+
+At runtime NVIDIA produces only the query embedding. Cosine similarity against the bundled matrix runs locally with NumPy, removing a vector-database network hop and keeping the exact ranking implementation under test.
+
+The pipeline then:
+
+1. restricts candidates to the approved source, translation sections, and Krishna as speaker;
+2. retrieves 20 dense candidates;
+3. injects curated trait and situation anchors as candidates—not automatic winners;
+4. applies maximal marginal relevance;
+5. limits chapter concentration so one thematic cluster does not crowd out alternatives.
+
+Curated anchors solve a real semantic-search weakness: a short phrase such as “argument with my wife” may not resemble ancient wording about kind conduct or non-offending speech. Anchors guarantee that those passages are considered, but they still have to pass the same independent validation as every other result.
+
+### 4. Validate evidence before generation
+
+The five best diverse candidates go to JEV in one typed decision request. For each passage, JEV answers two separate questions:
+
+- Does this passage directly address a specific part of the user’s situation, emotion, or inner conflict?
+- Can an answer use the principle actually stated in the passage without inventing a teaching or stretching a metaphor?
+
+Only candidates above the configured relevance threshold survive. At most three approved passages cross the typed generation boundary. If none survive, DeepSeek is never called.
+
+### 5. Generate from a closed evidence set
+
+DeepSeek receives the user context, typed classification, and only the approved passages. It must use supplied citation labels, follow a stable two-section response format, and avoid diagnosis, coercion, shame, fabricated verses, or claims of divine authority.
+
+After generation, deterministic citation checks, NVIDIA output safety, and JEV answer validation run before the response reaches the user. A helpfulness-only failure can receive a bounded repair; grounding or safety failures are never papered over with another unconstrained draft.
+
+### 6. Cache decisions without hiding invalidation
+
+Redis cache identities include the corpus checksum, embedding model, taxonomy, prompt versions, thresholds, filters, and reranking settings. Changing anything that could change a decision creates a new cache generation automatically. Retrieval values store approved chunk IDs and scores rather than user queries or verse text; the application rehydrates content from the verified local corpus.
+
+This custom approach is intentionally small and inspectable. For 1,860 chunks, local cosine search is simpler, cheaper, and more deterministic than operating a remote vector database—and the independent evidence gate is more valuable than adding retrieval infrastructure.
+
+Key implementation entry points:
+
+- `scripts/ingest_gita_pdf.py` — provenance-aware chunk construction;
+- `scripts/embed_gita_chunks.py` — reproducible passage embeddings;
+- `app/retrieval/gita_vector_retriever.py` — query construction, cosine search, and MMR;
+- `app/retrieval/trait_anchors.py` — curated candidate coverage;
+- `app/retrieval/jev_relevance_validator.py` — typed evidence decisions;
+- `app/services/retrieval_service.py` — filters, cache identity, and orchestration;
+- `app/services/generation_service.py` — closed-context generation and answer gates.
+
+## Why these technologies
+
+### JEV: decisions, not prose
+
+[JEV](https://openrouter.ai/typesafe/jev-1.13) is used where the system needs a constrained decision rather than creative text:
+
+1. classify scope, situation, emotion, inner conflict, and fine-grained trait;
+2. decide whether each retrieved passage is genuinely relevant and groundable;
+3. evaluate the final answer for faithfulness, citation coverage, helpfulness, and agency.
+
+This separation matters. A fluent generator can rationalize a weak retrieval result. JEV gives the application typed probabilities and explicit acceptance thresholds, so uncertainty becomes code—not an adjective hidden in model prose.
+
+### DeepSeek V4.1 Flash: focused text generation
+
+`deepseek/deepseek-v4.1-flash` is the default generator through OpenRouter. It is used for what it is good at: turning a small set of approved passages into a clear, empathetic, text-to-text response under a strict format.
+
+It is intentionally _not_ trusted to choose its own evidence or approve its own answer. The model sits between independent retrieval and validation gates, can receive a bounded repair instruction, and can be replaced through one environment variable. Model changes belong behind the evaluation suite, not inside product assumptions.
+
+### Redis: serverless coordination, not conversation storage
+
+Vercel instances are ephemeral and horizontally scaled. Upstash Redis supplies the shared state that must survive individual function instances:
+
+- HMAC-keyed classification and validated-retrieval caches;
+- atomic idempotency claims for repeated requests;
+- guest rate limiting at the Next.js boundary.
+
+Raw user text is not used as a Redis key. Retrieval cache values contain approved chunk identifiers and scores, then rehydrate verse text from the checked local corpus. Conversation history is deliberately not persisted in Redis.
+
+### LangSmith: see the system, not just the final sentence
+
+LangSmith captures the LangChain execution tree: safety, classification, retrieval, each generation attempt, repairs, and final validation. Combined with the application request ID, this makes latency and quality failures explainable across provider boundaries.
+
+LangSmith is observability—not the authoritative audit store. Tracing should be enabled only under an appropriate privacy and retention policy because model traces can contain user content.
+
+## The request lifecycle
+
+1. Validate input length and normalize the current message.
+2. Run deterministic local safety rules and the NVIDIA input rail.
+3. Ask JEV for typed classification decisions.
+4. Build a retrieval query using only confident fields plus versioned Gita vocabulary.
+5. Embed the query with NVIDIA Nemotron and search 1,860 local corpus chunks.
+6. Filter to approved source translations spoken by Krishna, inject curated candidates, and apply maximal marginal relevance.
+7. Ask JEV to accept or reject up to five candidate passages.
+8. Give at most three approved passages to DeepSeek.
+9. Run output safety and final JEV quality validation concurrently.
+10. Return cited guidance and the next bounded conversation-memory state—or fail closed.
+
+## Technology stack
+
+| Layer | Technology | Responsibility |
+| --- | --- | --- |
+| Web | Next.js 16, React 19, TypeScript | Guest chat, in-page memory, server-side proxy |
+| API | FastAPI, Pydantic | Typed ingress, lifecycle, error contracts |
+| Orchestration | LangChain | Named, testable pipeline stages |
+| Decisions | JEV via OpenRouter | Classification and independent quality gates |
+| Generation | DeepSeek V4.1 Flash via OpenRouter | Grounded response composition |
+| Safety and embeddings | NVIDIA Nemotron | Input/output safety and query embeddings |
+| Retrieval | NumPy cosine search + MMR | Local search over bundled vectors |
+| Shared state | Upstash Redis | Cache, idempotency, guest rate limits |
+| Observability | JSON logs, Prometheus, LangSmith | Correlated operations and model traces |
+| Hosting | Vercel | Two projects from one repository |
+
+## Repository layout
+
+```text
+.
+├── app/
+│   ├── api/                    # FastAPI routes, middleware, lifecycle
+│   ├── classifiers/            # JEV contracts and Gita taxonomy
+│   ├── guardrails/             # Local and NVIDIA safety boundaries
+│   ├── retrieval/              # Local vector search and JEV passage validation
+│   ├── services/               # Classification, retrieval, generation, memory
+│   └── observability/          # Logs, metrics, audit events
+├── data/
+│   ├── processed/              # Verse chunks, checksummed vectors, metadata
+│   └── sources.json            # Source provenance and checksum
+├── evals/                      # Classification, retrieval, answer, adversarial gates
+├── tests/                      # Deterministic backend contract tests
+├── web/                        # Next.js guest application
+├── index.py                    # Vercel FastAPI entrypoint
+└── vercel.json                 # Backend function bundle and duration
+```
+
+## Run locally
+
+### Prerequisites
+
+- Python 3.10+
+- Node.js 20+
+- OpenRouter API key with JEV and DeepSeek access
+- NVIDIA API key
+- Optional for local development: Upstash and LangSmith
+
+### 1. Start the API
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-Install the dependencies:
-
-```bash
 python -m pip install -r requirements.txt
-```
-
-Copy the example environment file and add your key:
-
-```bash
 cp .env.example .env
 ```
 
-The `.env` file is ignored by Git and should not be committed.
-
-## Run the application
-
-From the project root, run:
-
-```bash
-python -m app.main
-```
-
-Enter a personal situation when prompted:
-
-```text
-Tell me what you're going through: I worked hard but failed my interview and now I feel useless.
-```
-
-The CLI prints grounded guidance followed by the citations it used. The
-underlying classification returned by the HTTP classification endpoint is
-structured like this:
-
-```json
-{
-  "schema_version": "1.1",
-  "in_scope": true,
-  "in_scope_probability": 0.99,
-  "primary_situation": "fear_of_failure",
-  "primary_situation_confidence": 0.92,
-  "primary_emotion": "sadness",
-  "primary_emotion_confidence": 0.96,
-  "root_conflict": "attachment_to_results",
-  "root_conflict_confidence": 0.91,
-  "primary_trait": "failure",
-  "primary_trait_confidence": 0.94,
-  "needs_review": false,
-  "low_confidence_fields": [],
-  "provider_request_id": "decision-id",
-  "model": "typesafe/jev-1.13-snapshot"
-}
-```
-
-JEV is probabilistic, so classifications can vary between requests.
-
-### HTTP API
-
-Start the API with:
+The checked-in template already uses safe local defaults. Add real
+`OPENROUTER_API_KEY` and `NVIDIA_API_KEY` values. Keep LangSmith tracing disabled
+unless `LANGSMITH_API_KEY` contains a valid key, and make sure the frontend uses
+the same `APP_API_KEY` value.
 
 ```bash
-uvicorn app.api.application:app --host 127.0.0.1 --port 8000
+uvicorn index:app --host 127.0.0.1 --port 8000
 ```
 
-Classify a message:
+Health endpoints:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/v1/classifications \
-  -H 'Content-Type: application/json' \
-  -H 'X-API-Key: your-app-api-key' \
-  -H 'Idempotency-Key: mobile-request-123' \
-  -d '{"message":"I am worried that my effort will not lead to success."}'
+curl http://127.0.0.1:8000/health/live
+curl http://127.0.0.1:8000/health/ready
 ```
 
-The server generates the authoritative UUID request ID, returns it in both the
-response body and `X-Request-ID`, and preserves a separately validated optional
-`X-Client-Request-ID`. Public liveness and readiness endpoints are available at
-`/health/live` and `/health/ready`. The Prometheus endpoint `/metrics` uses the
-same API-key authentication policy as classification.
-
-The grounded-guidance route is protected by the same ingress controls and two
-independent release flags:
-
-```dotenv
-GUIDANCE_API_ENABLED=false
-GUIDANCE_RELEASE_APPROVED=false
-GUIDANCE_PRIVATE_BETA_ENABLED=false
-```
-
-Only after a reviewed release report passes should both be set to `true`. Send
-`{"message":"..."}` to `POST /v1/guidance`; the response includes the server request
-ID, guidance, citations, grounded chunk IDs, model/run IDs, and four final JEV
-quality probabilities.
-
-An access-controlled beta can instead set `GUIDANCE_API_ENABLED=true` and
-`GUIDANCE_PRIVATE_BETA_ENABLED=true` while keeping release approval false. The
-web app is guest-only, so the preview must use deployment-level access control;
-the feature flag and `APP_API_KEY` do not authenticate browser users.
-
-### Web chat and conversation memory
-
-The `web/` Next.js application provides guest-only chat. Multi-turn context is
-held only in React memory for the lifetime of the page and disappears on refresh.
-Server-side proxying keeps provider, Redis, and backend API secrets out of browser
-JavaScript.
-
-Context is shape/length validated before forwarding and is never written to a
-database or browser storage. Production guest traffic is fail-closed behind an
-Upstash sliding-window limit (10 requests per 10 minutes per HMAC-pseudonymized
-client address).
-
-The Python guidance API remains stateless. The web route sends bounded in-memory
-context as `conversation` and returns the next memory state to the current page.
-Current-message safety and classification remain separate from historical context.
-See `docs/architecture/conversation-memory.md` and
-`docs/deployment/vercel.md` for the contracts and deployment steps.
-
-## How it works
-
-```text
-User message
-    |
-    v
-LangChain pipeline (correlated by one request ID)
-    |
-    +--> Input normalization and validation
-    |
-    +--> Local explicit-language and crisis rail
-    |
-    +--> Optional NVIDIA Nemotron content-safety rail
-    |
-    +--> Exact HMAC-keyed cache / idempotency lookup
-    |       |
-    |       +--> cache miss -> JEV classifier -> OpenRouter Decisions API
-    |
-    v
-ClassificationResult
-    |
-    +--> versioned Gita-concept query expansion
-    +--> Krishna/source pre-filter -> 20 dense candidates
-    |       -> score post-filter -> MMR diversity rerank
-    |       -> one batched OpenRouter/JEV relevance decision
-    |       -> validated retrieval cache -> up to 3 grounding passages
-    v
-OpenRouter/Gemma grounded guidance generation
-    |
-    +--> deterministic citation/agency checks and bounded repair
-    +--> NVIDIA output-safety rail --------------------+
-    +--> final JEV faithfulness/citation/helpfulness --+ (concurrent)
-    v
-GuidanceResponse
-```
-
-JEV receives the message and four typed questions in one request. It uses a
-`noul` question for the in-scope decision and `choice` questions for situation,
-emotion, and root conflict. Returned choices are validated against the local
-taxonomy before a `ClassificationResult` is created.
-
-Safety runs before every cache lookup and before JEV, so cached results cannot
-bypass the current safety policy. Self-harm indicators use a separate escalation
-route and are not treated as profanity.
-
-The pipeline is composed from LangChain stages and the NVIDIA model is accessed
-through LangChain's OpenAI-compatible `ChatOpenAI` adapter. The safety, classification, retrieval,
-validation, and generation implementations remain ordinary Python services, so
-they can be unit tested without calling LangSmith or an external provider.
-
-## Logging and LangSmith traces
-
-The CLI writes one-line JSON application logs to stderr. A generated `request_id`
-connects validation, safety, JEV, and the final result. Each received user prompt
-and each outbound model prompt emits a log event containing an HMAC-SHA256 fingerprint
-and character count. Safety decisions, model identifiers, provider request IDs,
-classification labels, review decisions, and stage durations are also logged.
-
-Raw prompt content is deliberately excluded from application logs by default
-because messages may contain private emotional or health information. To include
-the complete text in development logs, set:
-
-```dotenv
-LOG_PROMPT_CONTENT=true
-```
-
-Do not enable that setting in production without a documented consent,
-retention, access-control, and deletion policy. API keys and authorization headers
-are never part of the logged prompt payload.
-
-To send the LangChain execution tree to LangSmith, configure:
-
-```dotenv
-LANGSMITH_TRACING=true
-LANGSMITH_API_KEY=your_langsmith_key
-LANGSMITH_PROJECT=gita-guide
-```
-
-The LangSmith trace contains named validation, guardrail, JEV-classification,
-retrieval, post-retrieval JEV validation, each initial/repair generation attempt,
-and parallel output-safety and final JEV answer-validation runs. Draft number,
-provider-attempt number, repair status, and prompt/repair versions are trace metadata.
-The application
-request ID is included as trace metadata and correlates those runs with logs,
-audit events, cache activity, and provider request IDs. LangChain passes step
-inputs and outputs to the tracer, so keep tracing disabled for sensitive
-production traffic until an approved data-handling policy is in place.
-Application logging continues to work when LangSmith is disabled or unavailable.
-
-LangSmith is the model-development trace, not the authoritative audit store. The
-service also writes versioned, append-only, prompt-free audit records to
-`AUDIT_LOG_PATH`. Prometheus metrics cover request outcomes and latency, guardrail
-decisions, classification review rates, provider health, and cache behavior. The
-completed generation audit event also records total, model, output-guardrail,
-answer-validation, and parallel wall-clock durations plus draft, repair, and provider
-attempt counts. This makes slow requests diagnosable by request ID without putting raw
-user text in the audit store.
-
-### Latency and quality comparison
-
-Use the grounded-answer dataset to compare a candidate generation model without
-editing `.env`:
+### 2. Start the web app
 
 ```bash
-python -m evals.run_grounded_answer_evals \
-  --generation-model google/gemma-4-31b-it \
-  --output evals/reports/gemma-4-31b-it.json
+cd web
+npm ci
+cp .env.example .env.local
+npm run dev
 ```
 
-The report includes mean, p50, and p95 end-to-end latency together with the existing
-faithfulness, citation-coverage, helpfulness, agency, evidence-hit, and case-pass
-metrics. Add `--max-p95-latency 10` when latency should be enforced as a release gate.
-Run the same command with a candidate model and compare both quality and latency;
-latency alone is never sufficient to approve a replacement. Evaluation reports are
-generated artifacts and are intentionally not committed because they become invalid
-when the dataset, corpus, prompt, model, or thresholds change.
+For local use, set `BACKEND_API_URL=http://127.0.0.1:8000` and use the same `APP_API_KEY` as the backend. Missing Upstash guest-rate-limit values are allowed only when Next.js is not running in production mode.
 
-## Caching and idempotency
+Open [http://localhost:3000](http://localhost:3000).
 
-Development defaults to a process-local TTL cache. A single local API process
-does not need Upstash. Multi-instance and serverless deployments should use the
-shared Upstash REST backend so cache entries and idempotency claims survive process
-boundaries:
+## Deploy to Vercel
+
+This repository is intentionally deployed as **two Vercel projects from the same Git repository**. Vercel documents this as the standard monorepo model: one project per root directory.
+
+| Vercel project | Root directory | Environment template |
+| --- | --- | --- |
+| `gita-guide-api` | `.` | [`.env.example`](.env.example) |
+| `gita-guide-web` | `web` | [`web/.env.example`](web/.env.example) |
+
+### Backend project
+
+1. Import the repository into Vercel.
+2. Keep the root directory at the repository root.
+3. Vercel detects the FastAPI entrypoint exported by `index.py`.
+4. Add every variable from `.env.example` to Preview and Production, using real
+   provider and Redis credentials.
+5. Apply the production overrides shown below.
+6. Mark API keys, tokens, and HMAC secrets as **Sensitive**.
+7. Deploy and verify `/health/live` and `/health/ready`.
 
 ```dotenv
 APP_ENVIRONMENT=production
-CACHE_BACKEND=upstash
-UPSTASH_REDIS_REST_URL=https://replace-with-your-database.upstash.io
-UPSTASH_REDIS_REST_TOKEN=replace-with-your-token
-CACHE_HMAC_SECRET=a-random-secret-containing-at-least-32-bytes
-CLASSIFICATION_CACHE_TTL_SECONDS=3600
-IDEMPOTENCY_TTL_SECONDS=86400
-```
-
-Cache keys are opaque HMACs over the normalized message and every decision-changing
-version: tenant, model, taxonomy, prompt, thresholds, and result schema. Raw text
-is never used as a Redis key. Cache values are encoded before transport, but are
-not application-encrypted; configure Upstash access and retention accordingly.
-Low-confidence and `needs_review` classifications are not cached. Concurrent
-identical cache misses are coalesced within a worker,
-and shared Redis idempotency claims use atomic ownership checks. Provider errors are
-never cached.
-
-Retrieval uses the same backend under a separate `retrieval:v1` HMAC namespace.
-Its six-hour value contains only JEV-approved chunk IDs, scores, ranks, and
-validation metadata; the public-domain
-verse text is rehydrated from the bundled corpus. The query, verse text, and
-embedding vectors are not Redis values. Corpus checksum, embedding model,
-candidate count, score floor, speaker/source filters, and reranker settings are
-part of the cache key. The JEV model, validator prompt version, and acceptance
-threshold are included too, so any decision-changing revision creates a clean
-cache generation automatically.
-
-Production mode fails startup when API authentication, shared Redis caching, the
-NVIDIA fail-closed policy, durable audit output, or HMAC fingerprint secrets are
-missing. This prevents development defaults from being deployed accidentally.
-
-## Project structure
-
-```text
-app/
-├── api/                         # FastAPI ingress, middleware, and lifecycle
-├── cache/                       # Redis/memory cache and idempotency primitives
-├── classifiers/
-│   ├── jev_classifier.py       # OpenRouter request and response validation
-│   └── taxonomy.py             # Supported classification labels
-├── guardrails/
-│   └── input_safety.py         # Local and NVIDIA input/output safety rails
-├── models/
-│   ├── classification.py       # Structured classification result
-│   ├── retrieval.py            # Grounding passage/result contracts
-│   └── generation.py           # Fail-closed generation contracts
-├── observability/
-│   ├── audit.py                # Append-only audit sink contract
-│   ├── logging.py              # Correlated structured JSON logs
-│   ├── metrics.py              # Low-cardinality metric contract
-│   └── prometheus.py           # Prometheus adapter
-├── reliability/                # Retry and circuit-breaker primitives
-├── retrieval/                  # Vector search and OpenRouter/JEV validation
-├── services/                   # Classification, retrieval, and generation stages
-├── config.py                   # Environment configuration
-└── main.py                     # CLI entry point
-evals/
-├── classification_cases.json  # Versioned labeled evaluation set
-├── retrieval_cases.json       # Retrieval relevance and abstention labels
-├── grounded_answer_cases.json # Answer quality and evidence expectations
-├── adversarial_cases.json     # Safety and prompt-injection cases
-├── reports/                   # Reports and combined release manifest
-└── run_*_evals.py             # Live classification/retrieval/answer/safety gates
-data/
-├── raw/                        # Provenance-tracked source PDF
-├── processed/                  # Verse-aware JSONL chunks
-└── sources.json                # Source license, URL, and checksum
-scripts/
-├── ingest_gita_pdf.py          # Validated PDF-to-chunk pipeline
-├── embed_gita_chunks.py        # Optional multilingual embedding build
-├── check_jev_retrieval_validation.py
-└── check_grounded_guidance.py  # Full live synthetic smoke test
-tests/
-├── test_classifier.py          # Mocked classifier and safety tests
-├── test_evaluation_dataset.py  # Evaluation-data contract checks
-├── test_gita_corpus.py         # Corpus provenance and coverage checks
-└── test_jev.py                 # Manual live JEV integration script
-web/
-├── app/                        # Guest-only page and server-side API route
-├── components/                 # Accessible chat interface
-└── lib/                        # Guest guards, in-page memory, FastAPI proxy
-```
-
-## Classification taxonomy
-
-The supported labels are defined in `app/classifiers/taxonomy.py`.
-
-Situation examples include fear of failure, outcome anxiety, comparison, anger,
-grief, confusion, lack of motivation, purpose, discipline, and relationship
-conflict.
-
-Emotion examples include fear, sadness, anger, envy, guilt, confusion,
-frustration, hopelessness, and calm.
-
-Root-conflict examples include attachment to results, fear, comparison, ego,
-desire, duty conflict, lack of self-control, loss, and uncertainty.
-
-Each dimension also includes an `other` category.
-
-Taxonomy version 2 adds a separate fine-grained `primary_trait` decision drawn from
-the canonical `GITA_TRAITS` catalog. It intentionally does not replace situation,
-emotion, or root conflict because the catalog contains a mixture of situations,
-feelings, behaviors, inner drivers, and aspirational qualities. JEV returns one exact
-trait and its confidence in the same provider request, and confident trait text is
-included in the retrieval query. Existing classification records without the optional
-trait fields remain readable during migration; newly generated decisions include them.
-
-The API result includes confidence for every categorical decision, the in-scope
-probability, the resolved model snapshot, and the provider request ID so decisions
-can be audited.
-
-Any decision below `CLASSIFICATION_MIN_CONFIDENCE` is marked `needs_review`
-instead of being treated as equally reliable. Evaluation reports include review
-rate and selective joint accuracy for the classifications that would be accepted
-automatically.
-
-## Input safety and NVIDIA guardrails
-
-The default pipeline always applies a deterministic local first-pass rail. It:
-
-- Blocks configured explicit or obfuscated language before classification
-- Escalates clear self-harm language to a dedicated safety message
-- Allows ordinary grief, anger, and non-graphic requests for emotional support
-
-For development, add `NVIDIA_API_KEY` to `.env`. The application then uses
-NVIDIA's hosted OpenAI-compatible endpoint with the current
-[`nvidia/nemotron-3.5-content-safety`](https://build.nvidia.com/nvidia/nemotron-3.5-content-safety)
-model. No key value is logged or included in application output.
-
-NVIDIA labels this a free development endpoint, but it is a rate-limited trial
-service rather than a production SLA. NVIDIA also states that hosted trial inputs
-and outputs may be recorded, so do not send confidential or personally identifying
-user data through it without an appropriate privacy and consent design.
-
-Test the configured endpoint with a synthetic message:
-
-```bash
-python -m scripts.check_nvidia_guardrail "I am disappointed about failing an exam."
-```
-
-For production, either use an approved hosted deployment or self-host the model
-behind the same OpenAI-compatible interface. Set:
-
-```dotenv
 NVIDIA_GUARDRAIL_REQUIRED=true
+CACHE_BACKEND=upstash
+AUDIT_LOG_PATH=/tmp/gita-guide/phase1.jsonl
+LANGSMITH_TRACING=true
 ```
 
-That setting makes the application fail closed if the model-based safety rail is
-unavailable. A self-hosted model avoids per-request vendor charges, but compute
-and operations are not cost-free. NVIDIA documents input, retrieval, dialog,
-execution, and output rail stages in its
-[guardrail types guide](https://docs.nvidia.com/nemo/guardrails/about-nemo-guardrails-library/rail-types).
+Set `LANGSMITH_TRACING=false` in production if no valid LangSmith key is configured.
 
-The local lexical layer is defense in depth; it is not represented as a substitute
-for the NVIDIA safety model.
+The backend `vercel.json` bundles the checksummed corpus and embedding artifacts and gives the function a 120-second ceiling. The deployed API is protected by `APP_API_KEY`; browser code never receives that key.
 
-## Classification evaluations
+### Frontend project
 
-`evals/classification_cases.json` currently contains 26 labeled cases covering
-every situation category, ambiguous acceptable labels, and out-of-scope inputs.
-Run the live evaluation with:
+1. Import the same repository a second time.
+2. In **Settings → Build and Deployment**, set **Root Directory** to `web`.
+3. Set **Framework Preset** to **Next.js**. Do not reuse the FastAPI backend project.
+4. Leave Build Command and Output Directory on their framework defaults.
+5. Add the five variables from `web/.env.example`.
+6. Set `BACKEND_API_URL` to the deployed backend origin.
+7. Set `APP_API_KEY` to exactly the backend value.
+8. Deploy, submit a guest message, and correlate its `X-Request-ID` across both projects.
+
+The frontend contains its own `web/vercel.json` with `"framework": "nextjs"`.
+If a frontend build reports “No FastAPI entrypoint found,” Vercel is still building
+the repository root or the project Framework Preset is still set to FastAPI.
+
+Do not create `NEXT_PUBLIC_*` versions of any secret. Vercel environment changes apply only to new deployments, so redeploy after changing a value. See the [Vercel monorepo guide](https://vercel.com/docs/monorepos), [FastAPI guide](https://vercel.com/docs/frameworks/backend/fastapi), and [sensitive environment-variable guide](https://vercel.com/docs/environment-variables/sensitive-environment-variables).
+
+### Production smoke test
 
 ```bash
-python -m evals.run_classification_evals \
-  --repeats 3 \
-  --min-joint-accuracy 0.85 \
-  --output evals/reports/latest.json
+curl -i https://YOUR_API_HOST/health/live
+
+curl -i https://YOUR_API_HOST/v1/guidance \
+  -H 'Content-Type: application/json' \
+  -H 'X-API-Key: YOUR_SERVER_ONLY_KEY' \
+  -H 'Idempotency-Key: deployment-smoke-001' \
+  --data '{"message":"I am anxious about an outcome I cannot control.","conversation":{}}'
 ```
 
-Each repeat makes one billable JEV request per case. Reports include per-field
-accuracy, joint accuracy, and every mismatch. Because JEV is probabilistic, use
-multiple repeats before accepting a taxonomy or prompt change.
+Keep `GUIDANCE_RELEASE_APPROVED=false` until the full evaluation manifest is reviewed. The current guest deployment uses the explicit private-beta gate.
 
-Treat only a report generated from the current dataset, taxonomy, prompt, model,
-and thresholds as valid. Historical development results are intentionally excluded
-from the repository because they are not production accuracy claims.
+## Environment design
 
-Run the deterministic test suite separately:
+Only deployment-critical values remain in the templates. Timeouts, thresholds, retrieval sizes, cache TTLs, and conversation-memory limits have validated application defaults and should not be copied into every environment unless an evaluated change requires an override.
+
+Generate independent secrets:
 
 ```bash
-python -m pytest -q
+openssl rand -hex 32  # APP_API_KEY
+openssl rand -hex 32  # CACHE_HMAC_SECRET
+openssl rand -hex 32  # PROMPT_FINGERPRINT_SECRET
+openssl rand -hex 32  # GUEST_RATE_LIMIT_SECRET
 ```
 
-## Bhagavad Gita corpus
+Never reuse the guest-rate-limit secret as a cache or prompt-fingerprint secret.
 
-The repository uses the user-provided *Bhagavad-gita As It Is* PDF by
-A. C. Bhaktivedanta Swami Prabhupada. Its local path, edition metadata, retrieval
-date, and SHA-256 checksum are recorded in `data/sources.json`. The repository
-does not assert redistribution rights for this source; confirm those rights
-before distributing the PDF or derived text.
+## API
 
-Rebuild the retrieval chunks with:
+The primary endpoint is `POST /v1/guidance`. The browser calls `POST /api/chat` on the Next.js application; that server-only route adds the private backend credential, idempotency, rate limiting, and bounded conversation context before contacting FastAPI. There is no end-user sign-in flow.
+
+The API returns:
+
+- server-generated request ID;
+- cited guidance and structured presentation fields;
+- grounded corpus chunk IDs;
+- resolved generation and validation models;
+- JEV probabilities for faithfulness, citation coverage, helpfulness, and agency;
+- the next bounded conversation summary and recent-turn window.
+
+Additional endpoints:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health/live` | Process liveness |
+| `GET` | `/health/ready` | Dependency readiness |
+| `POST` | `/v1/classifications` | Typed JEV classification |
+| `POST` | `/v1/guidance` | Full grounded pipeline |
+| `POST` | `/v1/conversations/summarize` | Bounded memory compaction |
+| `GET` | `/metrics` | Prometheus metrics, API-key protected |
+
+## Quality gates
+
+Deterministic checks:
 
 ```bash
-python -m pip install -r requirements-rag.txt
-python scripts/ingest_gita_pdf.py
+PYTHONPATH=. .venv/bin/python -m pytest -q
+cd web && npm test && npm run build
 ```
 
-The ingestion pipeline verifies the source checksum and validates coverage of all
-700 verses across 18 chapters. It finds 653 printed verse sections and emits 1,860
-JSONL chunks: 653 translations and 1,207 purport chunks. Each chunk contains a
-stable ID, chapter and verse range, canonical verse speaker, section type, content
-author, source PDF page, and retrieval text.
-
-Long passages are split recursively at paragraph boundaries first, then newlines,
-sentence-ending periods, spaces, and finally character boundaries. The defaults
-are 1,200 characters with up to 160 characters of contextual overlap. This keeps
-verse ranges and provenance stable while preventing long purports from dominating
-the retrieval context. Translation and purport are always labeled separately so
-commentary cannot be presented as Krishna's direct words.
-
-Regenerate the bundled vector artifact with:
+Live evaluation suites make provider calls and may consume quota:
 
 ```bash
-python -m scripts.embed_gita_chunks
+python -m evals.run_classification_evals
+python -m evals.run_retrieval_evals
+python -m evals.run_grounded_answer_evals
+python -m evals.run_adversarial_evals
 ```
 
-The build uses NVIDIA `nvidia/nemotron-3-embed-1b` through the OpenAI-compatible
-embedding endpoint with `input_type=passage`. Its normalized 2048-dimensional
-float vectors are saved in `data/processed/gita_embeddings.npy`. The 15 MB matrix
-ships with the application and is memory-mapped at startup, so similarity search
-does not require a vector database or network call.
+The evaluation data includes ambiguity, abstention, prompt-injection, emotional-transition, relationship-conflict, evidence-grounding, and citation cases. A model or prompt change is not “better” merely because it is faster; it must pass the relevant quality gates.
 
-The hosted NVIDIA endpoint is appropriate for development, not an enterprise SLA.
-Indexing sends the source Gita text. Runtime retrieval sends the user's
-retrieval query to the embedding endpoint, so production requires the same privacy
-and vendor review as the safety model.
+## Privacy, safety, and honest limitations
 
-`GitaVectorRetriever` loads the bundled artifact only after verifying the chunk
-and embedding checksums, row count, dimensions, and normalization flag. It returns LangChain
-`Document` objects containing chapter, verse, PDF page, speaker, source ID, and
-similarity score for later citations. At runtime, NVIDIA creates only the query
-embedding with `input_type=query`; cosine ranking then runs locally over all 1,860
-vectors. The retrieval stage combines the original message with confident Phase 1
-labels and a versioned mapping from situations to corpus vocabulary. Low-confidence
-categorical labels are omitted. The interactive CLI and gated guidance route
-execute this stage; the public route remains hidden until its release manifest passes.
+- This is reflective guidance, not therapy, diagnosis, emergency support, or a substitute for human judgment.
+- Guest conversations live in page memory and disappear on refresh, but configured model and tracing providers still process request content under their own policies.
+- Raw message content is excluded from normal application logs by default. LangSmith traces can contain inputs and outputs.
+- The Vercel-compatible JSONL audit path uses ephemeral `/tmp`; it is a private-beta compatibility measure, not durable compliance storage.
+- Hosted provider availability and rate limits remain external dependencies.
+- The bundled source edition and derived corpus have recorded provenance in `data/sources.json`. Confirm redistribution rights before publicly distributing source or derived text.
 
-The retrieval pipeline first allows only approved-source verse translations spoken
-by Krishna, retrieves 20 dense candidates, applies a configurable
-similarity floor, and reranks with maximal marginal relevance. It limits any one
-chapter to two selected passages and returns at most five. It never fills missing
-slots with passages that failed the relevance filter.
+---
 
-Five reranked passages—including one curated trait-to-verse anchor—are evaluated
-in one JEV Decisions request. The anchor is guaranteed consideration but does not
-bypass validation. Each
-receives a typed relevance probability and only passages meeting
-`RETRIEVAL_VALIDATION_THRESHOLD` survive. The result exposes
-`ready_for_generation`; an unavailable/invalid validator fails closed, and a
-result with no approved passages prevents the LLM layer from running.
-The typed `GroundedGenerationInput` boundary accepts only results marked ready and
-rechecks every passage against the recorded JEV threshold before any LLM adapter
-can be called. Approved passages are ordered by JEV relevance, and only the best
-three are sent to generation.
-
-The generator sends the user message, typed classification, and only approved
-passages to `google/gemma-4-31b-it` through OpenRouter and LangChain. Its typed
-presentation returns `Label`, `What Krishna said`, `How to overcome`, and the
-source-extracted Sanskrit sloka so live and offline guidance share one visual
-language. Its response must cite only those passages and avoid coercive language.
-NVIDIA output safety plus JEV faithfulness, citation coverage, and agency are hard
-gates. A helpfulness-only miss receives one targeted rewrite and then returns a
-typed signal that the web boundary converts into the matching curated offline card,
-instead of exposing a generic 502.
-
-Run a direct retrieval smoke test with:
-
-```bash
-python -m scripts.search_gita \
-  "I am anxious that my work will not produce the result I want" \
-  --top-k 5
-```
-
-Verify the live OpenRouter/JEV post-retrieval validator with two synthetic,
-public-corpus candidates:
-
-```bash
-python -m scripts.check_jev_retrieval_validation
-```
-
-This makes one live Decisions API request. It prints only chunk IDs, relevance
-probabilities, the resolved model, and the provider request ID; it never prints
-the API key, user text, or verse text. The command succeeds only when JEV accepts
-the result-anxiety passage and rejects the deliberately unrelated ceremonial passage.
-
-Run the complete live CLI service path with a synthetic message:
-
-```bash
-python -m scripts.check_grounded_guidance
-```
-
-This calls the configured NVIDIA input rail, OpenRouter/JEV classifier, NVIDIA
-query embedding, OpenRouter/JEV retrieval validator, OpenRouter/Gemma generator, and NVIDIA
-output rail, followed by the final JEV answer judge. With Upstash enabled it also
-exercises the shared classification and retrieval caches. It makes live provider
-requests and may consume trial quota.
-
-## Retrieval, answer, and adversarial evaluations
-
-Run the downstream live gates and assemble the release manifest:
-
-```bash
-python -m evals.run_retrieval_evals --output evals/reports/retrieval-latest.json
-python -m evals.run_grounded_answer_evals --output evals/reports/answers-latest.json
-python -m evals.run_adversarial_evals --output evals/reports/adversarial-latest.json
-python -m evals.check_release_gates \
-  --classification evals/reports/latest.json \
-  --retrieval evals/reports/retrieval-latest.json \
-  --answers evals/reports/answers-latest.json \
-  --adversarial evals/reports/adversarial-latest.json \
-  --output evals/reports/guidance-release.json
-```
-
-Reports generated for a previous corpus revision must not be reused after a PDF,
-chunking, embedding-model, or evaluation-dataset change. Regenerate all downstream
-reports before evaluating the release manifest. The free NVIDIA endpoint is a
-development dependency and is not a production SLA.
-
-## Live JEV check
-
-To call JEV directly with the sample payload in the integration script, run:
-
-```bash
-python tests/test_jev.py
-```
-
-This script makes a real, billable OpenRouter API request. It is currently a
-manual integration check rather than an isolated automated test.
-
-## Current status
-
-Implemented:
-
-- Interactive CLI input
-- LangChain Phase 1 orchestration for validation, safety, and classification
-- Correlated JSON prompt, safety, classification, failure, and timing logs
-- Optional LangSmith traces with named spans for every Phase 1 stage
-- FastAPI ingress with auth, body limits, trusted request IDs, safe errors, and health checks
-- Redis/in-memory exact classification cache, atomic idempotency, and single-flight control
-- Bounded retries and provider circuit breakers
-- HMAC prompt fingerprints and append-only durable audit records
-- Prometheus metrics endpoint
-- OpenRouter/JEV classification with confidence and provider metadata
-- Strict response-shape and taxonomy validation
-- Local input safety, crisis escalation, and optional NVIDIA model-based safety
-- Versioned classification dataset and live evaluation runner
-- User-provided source PDF with provenance and checksum
-- Recursive translation and purport chunks covering all 700 verses
-- NVIDIA Nemotron embedding client with query/passage separation
-- Bundled, memory-mapped 1,860-row embedding matrix with checksum metadata
-- Provenance-checked LangChain local vector retriever with citation metadata
-- Krishna/source pre-filter, score post-filter, and deterministic MMR reranking
-- Up-to-five bounded grounding context with chapter diversity
-- HMAC-keyed Redis retrieval cache storing chunk references rather than verse text
-- Batched JEV post-retrieval validation with a fail-closed generation gate
-- LangChain `ChatOpenAI` grounded generation through OpenRouter/Gemma using only JEV-approved passages
-- Deterministic citation/agency checks, bounded repair, and NVIDIA output safety
-- Final JEV semantic answer gate with per-dimension runtime thresholds
-- Labeled retrieval, grounded-answer, and adversarial live evaluation runners
-- Hash-bound release manifest and default-hidden `/v1/guidance` API
-- Correlated retrieval/cache/reranking/provider logs and LangSmith stage spans
-- Unit, concurrency, timeout, failure, API-load, cache, audit, metrics, and corpus tests
-
-Release blockers:
-
-- Improve grounded-answer helpfulness and evidence/case pass rate, especially for
-  grief and focus, without relaxing the semantic judge
-- Replace the free hosted NVIDIA trial with a deployment that has an enforceable
-  capacity/SLA contract, then rerun sustained load and soak tests
-- Obtain named Bhagavad Gita domain-reviewer sign-off for labels and outputs
-- Complete production security/privacy review, alert delivery, rate limiting,
-  secret rotation, backup, and incident-response exercises
-
-The architecture and production-readiness gates are documented in
-`docs/architecture/phase-1.md`, `docs/architecture/retrieval.md`,
-`docs/architecture/generation.md`, and `docs/architecture/release-gates.md`.
-Passing the local suite does not by itself declare
-the system production-ready; Redis, provider, alerting, security, privacy, and
-load gates must also pass in the target environment.
+Gita Guide is designed around a simple principle: **a compassionate answer should still be an auditable answer.**

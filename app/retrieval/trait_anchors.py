@@ -101,12 +101,24 @@ _SITUATION_TRAIT_FALLBACKS: dict[str, GitaTrait] = {
     "other": "uncertainty",
 }
 
+# Some situations need more than a trait-level anchor to give the validator a
+# concrete, usable choice. Relationship conflict is the clearest example: the
+# general conflict verse is relevant, but passages about kindness and speech
+# are often more directly groundable for an argument with someone close.
+SITUATION_VERSE_ANCHORS: dict[str, tuple[str, ...]] = {
+    "relationship_conflict": ("12.13", "17.15"),
+}
+
 
 def curated_anchor_verse_labels(
     classification: ClassificationResult,
 ) -> tuple[str, ...]:
-    """Return the curated verse label to resolve against the active corpus."""
+    """Return curated verse labels to resolve against the active corpus."""
     trait = classification.primary_trait or _SITUATION_TRAIT_FALLBACKS[
         classification.primary_situation
     ]
-    return (TRAIT_VERSE_ANCHORS[trait],)
+    labels = (
+        TRAIT_VERSE_ANCHORS[trait],
+        *SITUATION_VERSE_ANCHORS.get(classification.primary_situation, ()),
+    )
+    return tuple(dict.fromkeys(labels))

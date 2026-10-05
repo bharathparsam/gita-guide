@@ -7,6 +7,7 @@ import { createCuratedGuidanceFallback } from "@/lib/server/guidance-fallback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 type IncomingBody = {
   message?: unknown;

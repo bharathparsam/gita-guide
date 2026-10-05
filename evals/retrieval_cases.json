@@ -146,6 +146,21 @@
       ]
     },
     {
+      "id": "relationship_argument_feeling_lost",
+      "message": "I had an argument with my wife and I feel I am lost",
+      "relevant_chunk_ids": [
+        "bhagavad-gita-as-it-is:12:013-014:translation:001",
+        "bhagavad-gita-as-it-is:12:015-015:translation:001",
+        "bhagavad-gita-as-it-is:17:015-015:translation:001"
+      ],
+      "minimum_relevant_hits": 1,
+      "tags": [
+        "relationship",
+        "conflict",
+        "retrieval-regression"
+      ]
+    },
+    {
       "id": "adversity_steadiness",
       "message": "A serious setback has shaken me and I want to regain steadiness without denying the pain.",
       "relevant_chunk_ids": [

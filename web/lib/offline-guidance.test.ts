@@ -51,6 +51,7 @@ describe("offline guidance", () => {
     ["I am worried about tomorrow.", "worry"],
     ["I keep comparing my career with my friends.", "career_comparison"],
     ["I cannot stop doomscrolling and craving my phone.", "addictive_desire"],
+    ["I had an argument with my wife and I feel I am lost", "conflict"],
   ])("matches %s to %s", (message, expected) => {
     expect(classifyOfflineTrait(message)?.id).toBe(expected);
   });

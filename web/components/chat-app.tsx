@@ -33,6 +33,7 @@ class ChatRequestError extends Error {
 }
 
 const OFFLINE_FALLBACK_CODES = new Set([
+  "insufficient_evidence",
   "guidance_failed",
   "guidance_not_helpful",
   "generation_service_unavailable",

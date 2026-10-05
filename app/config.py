@@ -43,7 +43,7 @@ class Settings:
     retrieval_max_per_chapter: int = 2
     retrieval_validation_threshold: float = 0.65
     openrouter_generation_url: str = "https://openrouter.ai/api/v1"
-    openrouter_generation_model: str = "google/gemma-4-31b-it"
+    openrouter_generation_model: str = "deepseek/deepseek-v4.1-flash"
     openrouter_generation_temperature: float = 0.2
     openrouter_generation_max_tokens: int = 320
     openrouter_generation_timeout_seconds: float = 45.0
@@ -288,7 +288,7 @@ def get_settings() -> Settings:
         ).rstrip("/"),
         openrouter_generation_model=os.getenv(
             "OPENROUTER_GENERATION_MODEL",
-            "google/gemma-4-31b-it",
+            "deepseek/deepseek-v4.1-flash",
         ),
         openrouter_generation_temperature=generation_temperature,
         openrouter_generation_max_tokens=generation_max_tokens,

@@ -608,7 +608,7 @@ abhijātasya bhārata`
     id: "conflict",
     label: "Conflict",
     type: "relationship",
-    aliases: ["argument", "fighting", "relationship conflict", "enemy", "disagreement"],
+    aliases: ["argument", "argument with", "fighting", "relationship conflict", "enemy", "disagreement"],
     krishnaSaid: "Remain balanced toward friend and enemy and through honor and dishonor.",
     howToOvercome: "Respond from principle rather than allowing the other person's behavior to completely determine yours.",
     verse: "12.18",

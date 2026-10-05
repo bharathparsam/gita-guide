@@ -5,7 +5,7 @@
     "index.py": {
       "maxDuration": 120,
       "includeFiles": "{data/processed/**,data/sources.json}",
-      "excludeFiles": "{tests/**,evals/**,docs/**,scripts/**,supabase/**,data/raw/**,web/**,var/**,**/__pycache__/**,**/*.pyc}"
+      "excludeFiles": "{tests/**,evals/**,scripts/**,data/raw/**,web/**,var/**,**/__pycache__/**,**/*.pyc}"
     }
   }
 }

@@ -140,7 +140,7 @@ def test_retrieval_chain_uses_phase_one_classification(tmp_path: Path) -> None:
 
     assert output["documents"][0].metadata["chapter"] == 2
     assert "Primary situation: outcome anxiety" in output["retrieval_query"]
-    assert "concept expansion (gita-concepts-v4)" in output["retrieval_query"]
+    assert "concept expansion (gita-concepts-v5)" in output["retrieval_query"]
     assert "Root conflict: attachment to results" in build_classification_query(
         "I fear failing", classification()
     )
@@ -151,7 +151,7 @@ def test_anger_query_expands_toward_safe_conduct_evidence() -> None:
         "How can I act well when I feel angry?", anger_classification()
     )
 
-    assert "concept expansion (gita-concepts-v4)" in query
+    assert "concept expansion (gita-concepts-v5)" in query
     assert "non-injury" in query
     assert "kindliness" in query
     assert "non-vexing" in query

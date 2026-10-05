@@ -118,3 +118,19 @@ def test_openrouter_generation_settings_are_independent_from_jev_model(
         assert settings.openrouter_generation_url == "https://openrouter.ai/api/v1"
     finally:
         get_settings.cache_clear()
+
+
+def test_deepseek_flash_is_the_default_generation_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENVIRONMENT", "development")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.delenv("OPENROUTER_GENERATION_MODEL", raising=False)
+    get_settings.cache_clear()
+    try:
+        assert (
+            get_settings().openrouter_generation_model
+            == "deepseek/deepseek-v4.1-flash"
+        )
+    finally:
+        get_settings.cache_clear()

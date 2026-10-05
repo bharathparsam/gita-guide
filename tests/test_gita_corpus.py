@@ -6,7 +6,12 @@ from pathlib import Path
 import numpy as np
 
 from app.classifiers.taxonomy import GITA_TRAITS
-from app.retrieval.trait_anchors import TRAIT_VERSE_ANCHORS
+from app.models.classification import ClassificationResult
+from app.retrieval.trait_anchors import (
+    SITUATION_VERSE_ANCHORS,
+    TRAIT_VERSE_ANCHORS,
+    curated_anchor_verse_labels,
+)
 from scripts.ingest_gita_pdf import recursive_split_text
 
 
@@ -144,6 +149,34 @@ def test_every_trait_anchor_resolves_to_a_translation_chunk() -> None:
 
     assert set(TRAIT_VERSE_ANCHORS) == set(GITA_TRAITS)
     assert set(TRAIT_VERSE_ANCHORS.values()) <= translation_verses
+    assert {
+        label
+        for labels in SITUATION_VERSE_ANCHORS.values()
+        for label in labels
+    } <= translation_verses
+
+
+def test_relationship_conflict_includes_concrete_conduct_anchors() -> None:
+    classification = ClassificationResult(
+        in_scope=True,
+        in_scope_probability=0.99,
+        primary_situation="relationship_conflict",
+        primary_situation_confidence=0.95,
+        primary_emotion="confusion",
+        primary_emotion_confidence=0.82,
+        root_conflict="loss",
+        root_conflict_confidence=0.51,
+        primary_trait="conflict",
+        primary_trait_confidence=0.91,
+        needs_review=True,
+        low_confidence_fields=("root_conflict",),
+    )
+
+    assert curated_anchor_verse_labels(classification) == (
+        "12.18",
+        "12.13",
+        "17.15",
+    )
 
 
 def test_bundled_embeddings_match_corpus_and_manifest() -> None:

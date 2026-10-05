@@ -34,6 +34,7 @@ from app.models.retrieval import GroundingContext
 from app.observability.audit import AuditEvent, AuditSink, NoOpAuditSink
 from app.observability.logging import get_logger, prompt_log_fields, request_logging_context
 from app.observability.metrics import NoOpMetricSink, PhaseOneMetrics
+from app.services.conversation_service import build_contextual_retrieval_message
 
 
 GENERATION_PROMPT_VERSION = "grounded-guidance-v9"
@@ -215,6 +216,12 @@ or evidence. Do not invent verses, teachings, biographical facts, or
 Krishna quotations. Do not diagnose mental illness, promise outcomes, claim divine
 authority, or shame the user. Explain how the supplied teaching applies while
 respecting the user's agency.
+
+When prior context shows a meaningful change in the user's stated emotion or
+circumstances, preserve that chronology rather than flattening the states together.
+The practical paragraph may gently recognize the transition, but must prioritize the
+current message, avoid assuming why the change happened, and avoid claiming it will
+last. Do not force a connection when the prior context is unrelated.
 
 Every supplied passage is a verse translation whose canonical speaker is Krishna.
 Paraphrase the teaching in clear contemporary language. Do not attribute the teaching
@@ -826,7 +833,10 @@ Write the grounded guidance now.""",
                 },
             ) as run:
                 validation = self._answer_validator.validate(
-                    user_message=generation_input.message,
+                    user_message=build_contextual_retrieval_message(
+                        generation_input.message,
+                        generation_input.conversation_context,
+                    ),
                     guidance=guidance,
                     passages=generation_input.passages,
                 )
