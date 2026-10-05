@@ -318,6 +318,46 @@ def test_health_endpoints_are_public() -> None:
     assert "X-Request-ID" in ready.headers
 
 
+def test_liveness_survives_service_startup_failure_and_readiness_fails_closed() -> None:
+    def fail_to_start() -> FakePhaseOneService:
+        raise RuntimeError("dependency initialization failed")
+
+    application = create_app(
+        service_factory=fail_to_start,
+        api_settings=ApiSettings(api_key="secret"),
+    )
+
+    with TestClient(application) as client:
+        live = client.get("/health/live")
+        ready = client.get("/health/ready")
+
+    assert live.status_code == 200
+    assert live.json() == {"status": "ok"}
+    assert ready.status_code == 503
+    assert ready.json()["error"]["code"] == "not_ready"
+    assert application.state.startup_error_type == "RuntimeError"
+
+
+def test_liveness_survives_invalid_production_api_configuration(
+    monkeypatch,
+) -> None:
+    service = FakePhaseOneService()
+    monkeypatch.setenv("APP_ENVIRONMENT", "production")
+    monkeypatch.delenv("APP_API_KEY", raising=False)
+
+    application = create_app(service_factory=lambda: service)
+
+    with TestClient(application) as client:
+        live = client.get("/health/live")
+        ready = client.get("/health/ready")
+
+    assert live.status_code == 200
+    assert ready.status_code == 503
+    assert ready.json()["error"]["code"] == "not_ready"
+    assert application.state.startup_error_type == "ValueError"
+    assert service.closed is False
+
+
 def test_metrics_requires_authentication_and_returns_prometheus_payload() -> None:
     service = FakePhaseOneService()
     application = create_app(

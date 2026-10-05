@@ -111,17 +111,59 @@ def create_app(
     api_settings: ApiSettings | None = None,
 ) -> FastAPI:
     resolved_factory = service_factory or build_phase_one_service
-    resolved_api_settings = api_settings or load_api_settings()
+    startup_configuration_error: Exception | None = None
+    if api_settings is not None:
+        resolved_api_settings = api_settings
+    else:
+        try:
+            resolved_api_settings = load_api_settings()
+        except Exception as exc:
+            # Keep liveness available for deployment diagnosis, but use an
+            # unguessable boundary key and never initialize the guidance service.
+            startup_configuration_error = exc
+            resolved_api_settings = ApiSettings(api_key=secrets.token_urlsafe(32))
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         configure_logging()
-        service = resolved_factory()
-        application.state.phase_one_service = service
+        service: PhaseOneService | None = None
+        application.state.phase_one_service = None
+        application.state.startup_error_type = None
         try:
+            if startup_configuration_error is not None:
+                application.state.startup_error_type = type(
+                    startup_configuration_error
+                ).__name__
+                logger.error(
+                    "application.configuration.failed",
+                    extra={
+                        "stage": "load_api_settings",
+                        "error_type": type(startup_configuration_error).__name__,
+                    },
+                    exc_info=(
+                        type(startup_configuration_error),
+                        startup_configuration_error,
+                        startup_configuration_error.__traceback__,
+                    ),
+                )
+            else:
+                try:
+                    service = resolved_factory()
+                except Exception as exc:
+                    application.state.startup_error_type = type(exc).__name__
+                    logger.exception(
+                        "application.startup.failed",
+                        extra={
+                            "stage": "initialize_phase_one_service",
+                            "error_type": type(exc).__name__,
+                        },
+                    )
+                else:
+                    application.state.phase_one_service = service
             yield
         finally:
-            service.close()
+            if service is not None:
+                service.close()
             application.state.phase_one_service = None
 
     application = FastAPI(
