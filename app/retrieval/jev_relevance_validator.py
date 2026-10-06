@@ -33,6 +33,8 @@ class ChunkValidation:
     chunk_id: str
     relevance_probability: float
     accepted: bool
+    relevant_probability: float | None = None
+    groundable_probability: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,7 +262,7 @@ class JevRetrievalValidator:
         answers = data["answers"]
         results: list[ChunkValidation] = []
         for index, document in enumerate(documents):
-            probabilities: list[float] = []
+            probabilities: dict[str, float] = {}
             for suffix in ("relevant", "groundable"):
                 name = f"candidate_{index}_{suffix}"
                 answer = answers.get(name)
@@ -277,13 +279,15 @@ class JevRetrievalValidator:
                     raise RetrievalValidationError(
                         f"JEV returned an invalid probability for {name}"
                     )
-                probabilities.append(float(probability))
-            resolved_probability = min(probabilities)
+                probabilities[suffix] = float(probability)
+            resolved_probability = min(probabilities.values())
             results.append(
                 ChunkValidation(
                     chunk_id=str(document.metadata["chunk_id"]),
                     relevance_probability=resolved_probability,
                     accepted=resolved_probability >= self.threshold,
+                    relevant_probability=probabilities["relevant"],
+                    groundable_probability=probabilities["groundable"],
                 )
             )
         return RetrievalValidation(

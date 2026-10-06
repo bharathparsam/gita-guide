@@ -106,6 +106,10 @@ _SITUATION_TRAIT_FALLBACKS: dict[str, GitaTrait] = {
 # general conflict verse is relevant, but passages about kindness and speech
 # are often more directly groundable for an argument with someone close.
 SITUATION_VERSE_ANCHORS: dict[str, tuple[str, ...]] = {
+    # The trait-level anger anchor (2.62) explains how anger arises. These
+    # additional passages cover impaired judgment, regulated conduct, speech,
+    # and inner composure so advice-seeking anger prompts have usable evidence.
+    "anger": ("2.63", "2.64", "17.15", "17.16"),
     "relationship_conflict": ("12.13", "17.15"),
 }
 

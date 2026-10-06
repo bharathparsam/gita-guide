@@ -179,6 +179,29 @@ def test_relationship_conflict_includes_concrete_conduct_anchors() -> None:
     )
 
 
+def test_anger_includes_actionable_conduct_anchors() -> None:
+    classification = ClassificationResult(
+        in_scope=True,
+        in_scope_probability=0.99,
+        primary_situation="anger",
+        primary_situation_confidence=0.98,
+        primary_emotion="anger",
+        primary_emotion_confidence=0.95,
+        root_conflict="lack_of_self_control",
+        root_conflict_confidence=0.94,
+        primary_trait="anger",
+        primary_trait_confidence=0.97,
+    )
+
+    assert curated_anchor_verse_labels(classification) == (
+        "2.62",
+        "2.63",
+        "2.64",
+        "17.15",
+        "17.16",
+    )
+
+
 def test_bundled_embeddings_match_corpus_and_manifest() -> None:
     chunks_path = Path("data/processed/gita_chunks.jsonl")
     embeddings_path = Path("data/processed/gita_embeddings.npy")

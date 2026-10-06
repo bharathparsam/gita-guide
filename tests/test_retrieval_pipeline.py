@@ -234,7 +234,7 @@ def test_filtered_retrieval_returns_at_most_five_and_cache_avoids_embedding() ->
     assert embeddings.queries == [
         "User situation: I am anxious about the result\n"
         "Primary situation: outcome anxiety\n"
-        "Bhagavad Gita concept expansion (gita-concepts-v5): work action fruit "
+        "Bhagavad Gita concept expansion (gita-concepts-v6): work action fruit "
         "result success failure equanimity\n"
         "Primary emotion: fear\n"
         "Root conflict: attachment to results"

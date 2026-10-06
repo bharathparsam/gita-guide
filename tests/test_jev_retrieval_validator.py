@@ -72,6 +72,8 @@ def test_jev_validates_all_retrieved_chunks_in_one_typed_request() -> None:
     assert session.post.call_count == 1
     assert [item.accepted for item in result.chunks] == [True, False]
     assert [item.relevance_probability for item in result.chunks] == [0.88, 0.22]
+    assert [item.relevant_probability for item in result.chunks] == [0.92, 0.22]
+    assert [item.groundable_probability for item in result.chunks] == [0.88, 0.81]
     assert result.provider_request_id == "validation-decision-1"
     payload = session.post.call_args.kwargs["json"]
     assert set(payload["questions"]) == {

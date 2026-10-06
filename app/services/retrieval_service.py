@@ -30,7 +30,7 @@ from app.retrieval.jev_relevance_validator import (
 from app.retrieval.trait_anchors import curated_anchor_verse_labels
 
 
-RETRIEVAL_PIPELINE_VERSION = "retrieval-v5"
+RETRIEVAL_PIPELINE_VERSION = "retrieval-v6"
 RERANKER_VERSION = "dense-mmr-v1"
 logger = get_logger("retrieval")
 
@@ -353,6 +353,8 @@ class RetrievalExecutor:
                 "decisions": [
                     {
                         "chunk_id": item.chunk_id,
+                        "relevant_probability": item.relevant_probability,
+                        "groundable_probability": item.groundable_probability,
                         "relevance_probability": item.relevance_probability,
                         "accepted": item.accepted,
                     }

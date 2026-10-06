@@ -13,15 +13,14 @@ from langchain_core.runnables import Runnable, RunnableLambda
 from app.models.classification import ClassificationResult
 
 
-RETRIEVAL_QUERY_EXPANSION_VERSION = "gita-concepts-v5"
+RETRIEVAL_QUERY_EXPANSION_VERSION = "gita-concepts-v6"
 _SITUATION_QUERY_EXPANSIONS = {
     "fear_of_failure": "action courage success failure steadiness",
     "outcome_anxiety": "work action fruit result success failure equanimity",
     "comparison": "contentment envy own duty equality",
     "anger": (
-        "anger delusion discrimination self-control restraint non-injury truth "
-        "gentleness compassion kindliness silence forbearance conduct speech "
-        "serenity honesty motive non-vexing agreeable beneficial"
+        "anger self-control restraint calm conduct speech non-injury gentleness "
+        "patience beneficial"
     ),
     "grief": "grief death impermanent self body",
     "confusion": "duty action discernment right conduct",
