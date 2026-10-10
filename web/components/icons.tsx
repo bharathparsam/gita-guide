@@ -37,3 +37,15 @@ export function CloseIcon(props: IconProps) {
 export function LeafIcon(props: IconProps) {
   return <Icon {...props}><path d="M5 21c6-1 11-5 14-13" /><path d="M6 17C2 12 5 5 20 3c1 12-5 17-14 14Z" /></Icon>;
 }
+
+export function SpeakerIcon(props: IconProps) {
+  return <Icon {...props}><path d="M11 5 6 9H3v6h3l5 4V5Z" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M18 6a8.5 8.5 0 0 1 0 12" /></Icon>;
+}
+
+export function PauseIcon(props: IconProps) {
+  return <Icon {...props}><path d="M9 5v14M15 5v14" /></Icon>;
+}
+
+export function PlayIcon(props: IconProps) {
+  return <Icon {...props}><path d="m8 5 11 7-11 7V5Z" /></Icon>;
+}

@@ -69,12 +69,64 @@ _MESSAGE_INTENT_EXPANSIONS: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ),
 )
 
+_VERSE_REFERENCE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"\b(?:bhagavad\s+gita|gita|bg)\b[^\d\n]{0,40}"
+        r"(?P<chapter>\d{1,2})\s*[.:]\s*(?P<verse>\d{1,3})\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:chapter|ch\.?)\s*(?P<chapter>\d{1,2})\s*[,;:]?\s*"
+        r"(?:verse|v\.?)\s*(?P<verse>\d{1,3})\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?P<chapter>\d{1,2})\s*[.:]\s*(?P<verse>\d{1,3})\s*"
+        r"(?:passage|verse|sloka|shloka)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(?P<chapter>\d{1,2})\s*[.:]\s*(?P<verse>\d{1,3})\s*$",
+        re.IGNORECASE,
+    ),
+)
+_AMBIGUOUS_VERSE_REFERENCE_PATTERN = re.compile(
+    r"\b(?:what\s+is\s+|show\s+me\s+|explain\s+)?(?:the\s+)?"
+    r"\d{1,3}(?:st|nd|rd|th)?\s+verse\b[^\n]{0,40}\b(?:gita|bhagavad)\b|"
+    r"\b(?:gita|bhagavad)\b[^\n]{0,40}\b(?:the\s+)?"
+    r"\d{1,3}(?:st|nd|rd|th)?\s+verse\b",
+    re.IGNORECASE,
+)
+
+
+def extract_verse_references(message: str) -> tuple[str, ...]:
+    """Extract explicit chapter.verse references without interpreting bare numbers."""
+    references: list[str] = []
+    for pattern in _VERSE_REFERENCE_PATTERNS:
+        for match in pattern.finditer(message):
+            chapter = int(match.group("chapter"))
+            verse = int(match.group("verse"))
+            label = f"{chapter}.{verse}"
+            if label not in references:
+                references.append(label)
+    return tuple(references)
+
+
+def has_ambiguous_verse_reference(message: str) -> bool:
+    """Identify verse-number requests that omit the chapter."""
+    return not extract_verse_references(message) and bool(
+        _AMBIGUOUS_VERSE_REFERENCE_PATTERN.search(message)
+    )
+
 
 def matched_message_intents(message: str) -> tuple[str, ...]:
     """Return stable semantic intents detected directly from the user's words."""
-    return tuple(
+    intents = tuple(
         name for name, pattern, _ in _MESSAGE_INTENT_EXPANSIONS if pattern.search(message)
     )
+    if extract_verse_references(message):
+        return (*intents, "verse_reference")
+    return intents
 
 
 class RetrievalCorpusError(RuntimeError):
@@ -110,10 +162,22 @@ def _sha256(path: Path) -> str:
 def build_classification_query(
     message: str,
     classification: ClassificationResult,
+    *,
+    direct_verse_references: tuple[str, ...] | None = None,
 ) -> str:
     """Create an auditable query from the message and Phase 1 decision."""
     low_confidence = set(classification.low_confidence_fields)
     lines = [f"User situation: {message.strip()}"]
+    verse_references = (
+        extract_verse_references(message)
+        if direct_verse_references is None
+        else direct_verse_references
+    )
+    if verse_references:
+        lines.append(
+            "Direct verse lookup: "
+            + ", ".join(f"Bhagavad Gita {reference}" for reference in verse_references)
+        )
     if "primary_situation" not in low_confidence:
         lines.append(
             f"Primary situation: {classification.primary_situation.replace('_', ' ')}"

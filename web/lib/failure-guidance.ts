@@ -40,6 +40,9 @@ export function friendlyFailure(caught: unknown): { message: string; action: Rec
   if (caught.code === "safety_escalation") {
     return { message: caught.message, action: null };
   }
+  if (caught.code === "verse_reference_ambiguous" || caught.code === "verse_reference_not_found") {
+    return { message: caught.message, action: null };
+  }
   if (caught.code === "guidance_not_eligible" || caught.code === "insufficient_evidence") {
     return {
       message: "I’m sorry—I couldn’t find passages strong enough to ground a trustworthy answer. You can explore the curated traits and choose the reflection that feels closest.",

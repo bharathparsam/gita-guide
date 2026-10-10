@@ -36,7 +36,11 @@ from app.observability.logging import configure_logging, get_logger
 from app.services.classification_execution import IdempotencyInProgressError
 from app.retrieval.nvidia_embeddings import NvidiaEmbeddingError
 from app.retrieval.jev_relevance_validator import RetrievalValidationError
-from app.services.retrieval_service import RetrievalNotEligible
+from app.services.retrieval_service import (
+    AmbiguousVerseReference,
+    RetrievalNotEligible,
+    VerseReferenceNotFound,
+)
 from app.services.generation_service import (
     AnswerGroundingError,
     AnswerHelpfulnessError,
@@ -481,6 +485,26 @@ def create_app(
                 message=(
                     "That request has steered the chariot outside this guide’s safety "
                     "boundaries. Let’s bring it back to the road."
+                ),
+            )
+        except AmbiguousVerseReference:
+            return _error(
+                request,
+                status_code=422,
+                code="verse_reference_ambiguous",
+                message=(
+                    "The Gita has a verse 17 in several chapters. Please include both "
+                    "numbers—for example, 2.17 or 17.6."
+                ),
+            )
+        except VerseReferenceNotFound:
+            return _error(
+                request,
+                status_code=422,
+                code="verse_reference_not_found",
+                message=(
+                    "I couldn’t find that chapter-and-verse reference in the verified "
+                    "Bhagavad Gita text. Please check the reference and try again."
                 ),
             )
         except RetrievalNotEligible:

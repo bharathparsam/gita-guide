@@ -16,6 +16,7 @@ from app.retrieval.jev_relevance_validator import (
     RetrievalValidation,
 )
 from app.services.retrieval_service import (
+    AmbiguousVerseReference,
     RetrievalExecutor,
     RetrievalNotEligible,
     RetrievalPolicy,
@@ -408,6 +409,55 @@ def test_recognized_perfection_question_rescues_an_out_of_scope_decision() -> No
 
     assert result.ready_for_generation is True
     assert "Message intent expansion (perfection_of_person; gita-concepts-v8)" in embeddings.queries[0]
+
+
+def test_explicit_verse_reference_rescues_scope_and_returns_only_that_verse() -> None:
+    embeddings = CountingEmbeddings()
+    classification = _classification().model_copy(
+        update={"in_scope": False, "in_scope_probability": 0.05}
+    )
+    executor = RetrievalExecutor(
+        _retriever(embeddings),
+        AcceptingValidator(),
+        policy=RetrievalPolicy(
+            allowed_source_ids=("gita-test",),
+            allowed_speakers=("Krishna",),
+        ),
+    )
+
+    result = invoke_retrieval_chain(
+        build_filtered_retrieval_chain(executor),
+        message="What does the Gita say in 2.1?",
+        classification=classification,
+        request_id="request-direct-verse",
+    )
+
+    assert [chunk.chunk_id for chunk in result.chunks] == ["gita-test:2:1"]
+    assert "Direct verse lookup: Bhagavad Gita 2.1" in embeddings.queries[0]
+
+
+def test_ambiguous_verse_request_asks_for_the_chapter_before_retrieval() -> None:
+    embeddings = CountingEmbeddings()
+    executor = RetrievalExecutor(
+        _retriever(embeddings),
+        AcceptingValidator(),
+        policy=RetrievalPolicy(
+            allowed_source_ids=("gita-test",),
+            allowed_speakers=("Krishna",),
+        ),
+    )
+
+    with pytest.raises(AmbiguousVerseReference, match="chapter"):
+        invoke_retrieval_chain(
+            build_filtered_retrieval_chain(executor),
+            message="What is the 17th verse in the Gita?",
+            classification=_classification().model_copy(
+                update={"in_scope": False, "in_scope_probability": 0.05}
+            ),
+            request_id="request-ambiguous-verse",
+        )
+
+    assert embeddings.queries == []
 
 
 def test_retrieval_cache_outage_fails_open_to_local_retrieval() -> None:

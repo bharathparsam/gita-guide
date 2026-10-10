@@ -87,11 +87,18 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .message--assistant .message-avatar { color: #fff; background: var(--primary); }
 .message-avatar svg { width: 18px; height: 18px; }
 .message-body { min-width: 0; }
+.message-heading { width: min(100%, 720px); min-height: 44px; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .message-author { margin: 3px 0 8px; font-size: 13px; font-weight: 750; }
+.message-heading .message-author { margin: 0; }
 .message-content { max-width: 72ch; color: #343731; overflow-wrap: anywhere; line-height: 1.72; }
 .message-content p { margin: 0 0 13px; white-space: pre-wrap; }
 .message-content p:last-child { margin-bottom: 0; }
 .message--user .message-content { color: var(--ink); }
+.read-aloud-button { min-height: 44px; border: 1px solid var(--border); border-radius: 999px; padding: 8px 13px; color: var(--ink-muted); background: color-mix(in srgb, var(--surface) 78%, transparent); display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 720; white-space: nowrap; transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease; }
+.read-aloud-button:hover { border-color: color-mix(in srgb, var(--primary) 58%, var(--border)); color: var(--primary); background: var(--primary-soft); }
+.read-aloud-button:active { background: color-mix(in srgb, var(--primary-soft) 76%, var(--surface)); }
+.read-aloud-button--active { border-color: color-mix(in srgb, var(--primary) 58%, var(--border)); color: var(--primary); background: var(--primary-soft); }
+.read-aloud-button svg { width: 17px; height: 17px; }
 .trait-card { max-width: 720px; margin-top: 16px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border)); border-radius: 18px; background: var(--surface); box-shadow: 0 14px 38px rgba(39,45,35,.08); animation: reflection-enter 280ms cubic-bezier(.2,.8,.2,1) both; }
 .trait-card--live { margin-top: 8px; }
 .trait-card--live .trait-section:first-child { padding-top: 20px; }

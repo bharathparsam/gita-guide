@@ -22,6 +22,8 @@ from app.retrieval.gita_vector_retriever import (
     GitaVectorRetriever,
     RetrievalCorpusError,
     build_classification_query,
+    extract_verse_references,
+    has_ambiguous_verse_reference,
     matched_message_intents,
 )
 from app.retrieval.jev_relevance_validator import (
@@ -31,13 +33,21 @@ from app.retrieval.jev_relevance_validator import (
 from app.retrieval.trait_anchors import curated_anchor_verse_labels
 
 
-RETRIEVAL_PIPELINE_VERSION = "retrieval-v8"
+RETRIEVAL_PIPELINE_VERSION = "retrieval-v9"
 RERANKER_VERSION = "dense-mmr-v1"
 logger = get_logger("retrieval")
 
 
 class RetrievalNotEligible(ValueError):
     """Raised when Phase 1 does not safely support automated retrieval."""
+
+
+class AmbiguousVerseReference(RetrievalNotEligible):
+    """Raised when a verse number is supplied without its chapter."""
+
+
+class VerseReferenceNotFound(RetrievalNotEligible):
+    """Raised when an explicit chapter.verse reference is absent from the corpus."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +98,7 @@ class RetrievalState(TypedDict, total=False):
     classification: ClassificationResult
     retrieval_query: str
     anchor_chunk_ids: tuple[str, ...]
+    requested_chunk_ids: tuple[str, ...]
     retrieval: RetrievalResult
 
 
@@ -233,6 +244,7 @@ class RetrievalExecutor:
         *,
         request_id: str,
         anchor_chunk_ids: tuple[str, ...] = (),
+        requested_chunk_ids: tuple[str, ...] = (),
         cache_identity: str | None = None,
     ) -> _Retrieved:
         policy = self._policy
@@ -323,6 +335,14 @@ class RetrievalExecutor:
                 continue
             document.metadata["validation_probability"] = decision.relevance_probability
             approved.append(document)
+        jev_approved_count = len(approved)
+        if requested_chunk_ids:
+            requested = frozenset(requested_chunk_ids)
+            approved = [
+                document
+                for document in approved
+                if str(document.metadata["chunk_id"]) in requested
+            ]
         approved.sort(
             key=lambda document: (
                 float(document.metadata["validation_probability"]),
@@ -333,10 +353,10 @@ class RetrievalExecutor:
         validated = approved[: policy.top_k]
         for index, document in enumerate(validated, start=1):
             document.metadata["final_rank"] = index
-        rejected_count = len(selected) - len(approved)
+        rejected_count = len(selected) - jev_approved_count
         self._metrics.retrieval_validation(
             status="passed" if validated else "no_valid_chunks",
-            accepted_count=len(approved),
+            accepted_count=jev_approved_count,
             rejected_count=rejected_count,
         )
         logger.info(
@@ -345,7 +365,7 @@ class RetrievalExecutor:
                 "request_id": request_id,
                 "stage": "retrieval_jev_validation",
                 "input_count": len(selected),
-                "accepted_count": len(approved),
+                "accepted_count": jev_approved_count,
                 "returned_count": len(validated),
                 "rejected_count": rejected_count,
                 "validation_threshold": self._validator.threshold,
@@ -425,14 +445,16 @@ class RetrievalExecutor:
         *,
         request_id: str,
         anchor_chunk_ids: tuple[str, ...] = (),
+        requested_chunk_ids: tuple[str, ...] = (),
     ) -> RetrievalResult:
         started = perf_counter()
         safe_query_fields = prompt_log_fields(query, include_content=False)
-        cache_identity = (
-            f"{query}\nCurated anchor candidates: {','.join(anchor_chunk_ids)}"
-            if anchor_chunk_ids
-            else query
-        )
+        cache_parts = [query]
+        if anchor_chunk_ids:
+            cache_parts.append(f"Curated anchor candidates: {','.join(anchor_chunk_ids)}")
+        if requested_chunk_ids:
+            cache_parts.append(f"Direct verse requests: {','.join(requested_chunk_ids)}")
+        cache_identity = "\n".join(cache_parts)
         logger.info(
             "phase2.retrieval.started",
             extra={
@@ -443,6 +465,7 @@ class RetrievalExecutor:
                 "validation_k": self._policy.validation_k,
                 "top_k": self._policy.top_k,
                 "anchor_chunk_ids": list(anchor_chunk_ids),
+                "requested_chunk_ids": list(requested_chunk_ids),
                 **safe_query_fields,
             },
         )
@@ -459,6 +482,7 @@ class RetrievalExecutor:
                     query,
                     request_id=request_id,
                     anchor_chunk_ids=anchor_chunk_ids,
+                    requested_chunk_ids=requested_chunk_ids,
                     cache_identity=cache_identity,
                 )
 
@@ -568,6 +592,11 @@ def build_filtered_retrieval_chain(
 
     def pre_filter(state: RetrievalState) -> RetrievalState:
         classification = ClassificationResult.model_validate(state["classification"])
+        if has_ambiguous_verse_reference(state["message"]):
+            raise AmbiguousVerseReference(
+                "A chapter is required to identify a Bhagavad Gita verse"
+            )
+        verse_references = extract_verse_references(state["message"])
         message_intents = matched_message_intents(state["message"])
         scope_rescued_by_message_intent = bool(message_intents) and (
             not classification.in_scope
@@ -581,14 +610,20 @@ def build_filtered_retrieval_chain(
         ):
             raise RetrievalNotEligible("Low-confidence scope decisions require review")
         query = build_classification_query(
-            state.get("retrieval_message", state["message"]), classification
+            state.get("retrieval_message", state["message"]),
+            classification,
+            direct_verse_references=verse_references,
         )
-        anchor_chunk_ids = executor.resolve_anchor_chunk_ids(
-            curated_anchor_verse_labels(
-                classification,
-                message_intents=message_intents,
+        requested_chunk_ids = executor.resolve_anchor_chunk_ids(verse_references)
+        if verse_references and len(requested_chunk_ids) != len(verse_references):
+            raise VerseReferenceNotFound(
+                "The requested Bhagavad Gita verse is not present in the verified corpus"
             )
+        anchor_labels = verse_references or curated_anchor_verse_labels(
+            classification,
+            message_intents=message_intents,
         )
+        anchor_chunk_ids = executor.resolve_anchor_chunk_ids(anchor_labels)
         logger.info(
             "phase2.retrieval.pre_filter_completed",
             extra={
@@ -600,11 +635,13 @@ def build_filtered_retrieval_chain(
                     classification.low_confidence_fields
                 ),
                 "message_intents": list(message_intents),
+                "verse_references": list(verse_references),
                 "scope_rescued_by_message_intent": scope_rescued_by_message_intent,
                 "allowed_source_count": len(executor.cache_context.allowed_source_ids),
                 "allowed_speaker_count": len(executor.cache_context.allowed_speakers),
                 "allowed_section_count": len(executor.cache_context.allowed_sections),
                 "anchor_chunk_ids": list(anchor_chunk_ids),
+                "requested_chunk_ids": list(requested_chunk_ids),
             },
         )
         return {
@@ -612,6 +649,7 @@ def build_filtered_retrieval_chain(
             "classification": classification,
             "retrieval_query": query,
             "anchor_chunk_ids": anchor_chunk_ids,
+            "requested_chunk_ids": requested_chunk_ids,
         }
 
     def retrieve(state: RetrievalState) -> RetrievalState:
@@ -619,6 +657,7 @@ def build_filtered_retrieval_chain(
             state["retrieval_query"],
             request_id=state["request_id"],
             anchor_chunk_ids=state.get("anchor_chunk_ids", ()),
+            requested_chunk_ids=state.get("requested_chunk_ids", ()),
         )
         return {**state, "retrieval": result}
 

@@ -26,4 +26,15 @@ describe("chat failure guidance", () => {
     expect(result.action).toBe("browse");
     expect(result.message).toContain("curated traits");
   });
+
+  it("shows verse-reference clarification without an unrelated fallback", () => {
+    const result = friendlyFailure(new ChatRequestError(
+      "The Gita has a verse 17 in several chapters. Please include both numbers—for example, 2.17 or 17.6.",
+      422,
+      "verse_reference_ambiguous",
+    ));
+
+    expect(result.action).toBeNull();
+    expect(result.message).toContain("2.17 or 17.6");
+  });
 });

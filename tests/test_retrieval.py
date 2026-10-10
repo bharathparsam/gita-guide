@@ -12,6 +12,10 @@ from app.retrieval import (
     build_classification_query,
     build_retrieval_chain,
 )
+from app.retrieval.gita_vector_retriever import (
+    extract_verse_references,
+    has_ambiguous_verse_reference,
+)
 
 
 class FakeEmbeddings:
@@ -176,6 +180,27 @@ def test_general_perfection_question_gets_direct_semantic_expansion() -> None:
 
     assert "Message intent expansion (perfection_of_person; gita-concepts-v8)" in query
     assert "compassion self-control devotion steady wisdom" in query
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("What does the Gita say in 17.6?", ("17.6",)),
+        ("Explain Bhagavad Gita 17:6", ("17.6",)),
+        ("chapter 17 verse 6", ("17.6",)),
+        ("17.6 passage", ("17.6",)),
+        ("17.6", ("17.6",)),
+    ],
+)
+def test_extracts_explicit_chapter_and_verse_references(
+    message: str, expected: tuple[str, ...]
+) -> None:
+    assert extract_verse_references(message) == expected
+
+
+def test_identifies_a_verse_request_that_omits_the_chapter() -> None:
+    assert has_ambiguous_verse_reference("What is the 17th verse in the Gita?") is True
+    assert has_ambiguous_verse_reference("What does the Gita say in 17.6?") is False
 
 
 def test_skill_improvement_question_gets_skillful_action_expansion() -> None:

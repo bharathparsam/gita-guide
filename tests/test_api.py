@@ -13,6 +13,7 @@ from app.models.generation import GuidancePresentation, GuidanceResponse
 from app.services.generation_service import AnswerGroundingError
 from app.services.generation_service import AnswerHelpfulnessError
 from app.services.generation_service import GenerationProviderUnavailableError
+from app.services.retrieval_service import AmbiguousVerseReference
 
 
 def classification_result() -> ClassificationResult:
@@ -190,6 +191,18 @@ class UnavailableGuidanceService(FakePhaseOneService):
         idempotency_key: str | None = None,
     ):
         raise GenerationProviderUnavailableError("openrouter unavailable")
+
+
+class AmbiguousVerseGuidanceService(FakePhaseOneService):
+    def guide_with_context(
+        self,
+        message: str,
+        *,
+        conversation_context: ConversationContext,
+        request_id: str,
+        idempotency_key: str | None = None,
+    ):
+        raise AmbiguousVerseReference("A chapter is required")
 
 
 def test_classification_uses_server_request_id_and_preserves_client_id() -> None:
@@ -481,6 +494,29 @@ def test_released_guidance_endpoint_returns_validated_result() -> None:
     }
     assert body["summary_updated"] is False
     assert service.idempotency_keys == ["guide-1"]
+
+
+def test_guidance_asks_for_a_chapter_when_the_verse_reference_is_ambiguous() -> None:
+    application = create_app(
+        service_factory=AmbiguousVerseGuidanceService,
+        api_settings=ApiSettings(
+            api_key="secret",
+            guidance_api_enabled=True,
+            guidance_release_approved=True,
+        ),
+    )
+
+    with TestClient(application) as client:
+        response = client.post(
+            "/v1/guidance",
+            json={"message": "What is the 17th verse in the Gita?"},
+            headers={"X-API-Key": "secret"},
+        )
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "verse_reference_ambiguous"
+    assert "2.17 or 17.6" in error["message"]
 
 
 def test_guidance_quality_rejection_has_development_diagnostics() -> None:

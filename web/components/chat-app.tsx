@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createConversation, titleFromMessage } from "@/lib/conversations";
 import {
   createOfflineReflection,
@@ -22,7 +22,19 @@ import {
   friendlyFailure,
   OFFLINE_FALLBACK_CODES,
 } from "@/lib/failure-guidance";
-import { BookIcon, CloseIcon, LeafIcon, MenuIcon, PlusIcon, SendIcon, SparkIcon } from "@/components/icons";
+import { speechTextForMessage } from "@/lib/speech";
+import {
+  BookIcon,
+  CloseIcon,
+  LeafIcon,
+  MenuIcon,
+  PauseIcon,
+  PlayIcon,
+  PlusIcon,
+  SendIcon,
+  SparkIcon,
+  SpeakerIcon,
+} from "@/components/icons";
 
 type ApiError = { error?: { code?: string; message?: string; requestId?: string } };
 
@@ -54,6 +66,93 @@ function MessageContent({ content }: { content: string }) {
 
 function typeLabel(type: TraitReflection["type"]): string {
   return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+type SpeechPlayback = {
+  messageId: string | null;
+  paused: boolean;
+};
+
+function useReadAloud() {
+  const [supported, setSupported] = useState(false);
+  const [playback, setPlayback] = useState<SpeechPlayback>({ messageId: null, paused: false });
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  const stop = useCallback(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    utteranceRef.current = null;
+    setPlayback({ messageId: null, paused: false });
+  }, []);
+
+  useEffect(() => {
+    const available = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+    setSupported(available);
+    return stop;
+  }, [stop]);
+
+  const toggle = useCallback((message: ChatMessage) => {
+    if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) return;
+
+    if (playback.messageId === message.id) {
+      if (playback.paused) {
+        window.speechSynthesis.resume();
+        setPlayback({ messageId: message.id, paused: false });
+      } else {
+        window.speechSynthesis.pause();
+        setPlayback({ messageId: message.id, paused: true });
+      }
+      return;
+    }
+
+    utteranceRef.current = null;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(speechTextForMessage(message));
+    utterance.lang = document.documentElement.lang || navigator.language || "en-IN";
+    utterance.rate = 0.95;
+    utterance.onend = () => {
+      if (utteranceRef.current === utterance) {
+        utteranceRef.current = null;
+        setPlayback({ messageId: null, paused: false });
+      }
+    };
+    utterance.onerror = utterance.onend;
+    utteranceRef.current = utterance;
+    setPlayback({ messageId: message.id, paused: false });
+    window.speechSynthesis.speak(utterance);
+  }, [playback]);
+
+  return { supported, playback, stop, toggle };
+}
+
+function ReadAloudButton({
+  message,
+  playback,
+  onToggle,
+}: {
+  message: ChatMessage;
+  playback: SpeechPlayback;
+  onToggle: (message: ChatMessage) => void;
+}) {
+  const isCurrent = playback.messageId === message.id;
+  const label = isCurrent ? (playback.paused ? "Resume" : "Pause") : "Read aloud";
+  const accessibleLabel = isCurrent
+    ? (playback.paused ? "Resume reading this answer" : "Pause reading this answer")
+    : "Read this answer aloud";
+
+  return (
+    <button
+      className={`read-aloud-button${isCurrent ? " read-aloud-button--active" : ""}`}
+      type="button"
+      aria-label={accessibleLabel}
+      aria-pressed={isCurrent && !playback.paused}
+      onClick={() => onToggle(message)}
+    >
+      {isCurrent ? (playback.paused ? <PlayIcon /> : <PauseIcon />) : <SpeakerIcon />}
+      <span>{label}</span>
+    </button>
+  );
 }
 
 function TraitReflectionCard({ reflection, citations }: { reflection: TraitReflection; citations?: string[] }) {
@@ -118,6 +217,7 @@ export function ChatApp() {
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const offlineSearchRef = useRef<HTMLInputElement>(null);
   const offlineToggleRef = useRef<HTMLButtonElement>(null);
+  const readAloud = useReadAloud();
 
   useEffect(() => {
     const initial = [createConversation()];
@@ -146,6 +246,10 @@ export function ChatApp() {
   }, [active?.messages.length, sending]);
 
   useEffect(() => {
+    readAloud.stop();
+  }, [activeId, readAloud.stop]);
+
+  useEffect(() => {
     if (!sending) {
       setProgressStage(0);
       return;
@@ -165,6 +269,7 @@ export function ChatApp() {
   }
 
   function newChat() {
+    readAloud.stop();
     const conversation = createConversation();
     setConversations((current) => [conversation, ...current]);
     setActiveId(conversation.id);
@@ -216,6 +321,7 @@ export function ChatApp() {
   async function send(rawMessage: string) {
     const message = rawMessage.trim();
     if (!message || !active || sending) return;
+    readAloud.stop();
     const target = active;
     const clientRequestId = crypto.randomUUID();
     const userMessage: ChatMessage = {
@@ -372,7 +478,14 @@ export function ChatApp() {
                 <article key={message.id} className={`message message--${message.role}`}>
                   <div className="message-avatar" aria-hidden="true">{message.role === "assistant" ? <BookIcon /> : userInitial}</div>
                   <div className="message-body">
-                    <p className="message-author">{message.role === "assistant" ? "Gita Guide" : "You"}</p>
+                    {message.role === "assistant" ? (
+                      <div className="message-heading">
+                        <p className="message-author">Gita Guide</p>
+                        {readAloud.supported ? (
+                        <ReadAloudButton message={message} playback={readAloud.playback} onToggle={readAloud.toggle} />
+                        ) : null}
+                      </div>
+                    ) : <p className="message-author">You</p>}
                     {!message.reflection ? <div className="message-content"><MessageContent content={message.content} /></div> : null}
                     {message.reflection ? <TraitReflectionCard reflection={message.reflection} citations={message.citations} /> : null}
                     {!message.reflection && message.citations?.length ? <div className="citations" aria-label="Sources"><span>Sources</span>{message.citations.map((citation) => <span className="citation" key={citation}><BookIcon />{citation}</span>)}</div> : null}
