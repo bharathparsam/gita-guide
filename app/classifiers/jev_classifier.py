@@ -30,7 +30,7 @@ from app.reliability import (
 
 
 OPENROUTER_DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
-JEV_PROMPT_VERSION = "jev-prompt-v2"
+JEV_PROMPT_VERSION = "jev-prompt-v3"
 logger = get_logger("jev")
 
 
@@ -110,10 +110,17 @@ def _classify(
                 "instructions": (
                     "Does `message` describe a personal situation, emotional struggle, "
                     "decision, relationship issue, habit, motivation problem, or question "
-                    "of purpose for which reflective life guidance could be relevant?"
+                    "of purpose, virtue, self-development, skillful action, or the qualities "
+                    "of an ideal or spiritually mature person for which reflective Bhagavad "
+                    "Gita guidance could be relevant? General guidance questions in these "
+                    "areas are in scope even when they are not phrased as a personal problem."
                 ),
                 "criteria": {
-                    "true": "The message describes a personal concern or inner struggle.",
+                    "true": (
+                        "The message describes a personal concern or inner struggle, or asks "
+                        "for reflective guidance about virtue, character, purpose, perfection, "
+                        "self-improvement, or skillful action."
+                    ),
                     "false": "The message is unrelated, such as a greeting, factual query, or technical task.",
                 },
             },

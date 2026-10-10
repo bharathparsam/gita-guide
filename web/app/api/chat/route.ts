@@ -107,14 +107,6 @@ function helpfulnessFallbackResponse(
   const fallback = createCuratedGuidanceFallback(caught);
   if (!fallback) return null;
   const { message } = fallback;
-  const failure = caught as GuidanceProxyError;
-  console.warn(JSON.stringify({
-    event: "guidance.curated_fallback",
-    requestId: failure.requestId,
-    failedDimensions: failure.details?.failed_dimensions,
-    scores: failure.details?.scores,
-    fallbackTrait: message.reflection?.id,
-  }));
   return NextResponse.json(
     {
       requestId: fallback.requestId || message.id,
@@ -181,6 +173,7 @@ async function guestResponse(request: Request, input: {
 }
 
 export async function POST(request: Request) {
+  const startedAt = performance.now();
   const body = (await request.json().catch(() => null)) as IncomingBody | null;
   if (!body || typeof body.message !== "string") {
     return invalid("Enter a message to continue.");
@@ -198,15 +191,42 @@ export async function POST(request: Request) {
 
   const context = parseGuestContext(body.guestContext);
   if (!context.ok) return invalid(context.message);
+  console.info(JSON.stringify({
+    event: "guidance.proxy.started",
+    conversationId: body.conversationId,
+    clientRequestId: body.clientRequestId,
+    hasSummary: Boolean(context.value.summary),
+    recentTurnCount: context.value.recentTurns.length,
+  }));
   try {
-    return await guestResponse(request, {
+    const response = await guestResponse(request, {
       message,
       conversationId: body.conversationId,
       clientRequestId: body.clientRequestId,
       context: context.value,
     });
+    console.info(JSON.stringify({
+      event: response.ok ? "guidance.proxy.completed" : "guidance.proxy.rejected",
+      conversationId: body.conversationId,
+      clientRequestId: body.clientRequestId,
+      httpStatus: response.status,
+      durationMs: Math.round(performance.now() - startedAt),
+      fallback: response.headers.get("X-Guidance-Fallback") || "none",
+    }));
+    return response;
   } catch (caught) {
     const fallback = helpfulnessFallbackResponse(caught, context.value);
+    const failure = caught instanceof GuidanceProxyError ? caught : null;
+    console.warn(JSON.stringify({
+      event: fallback ? "guidance.proxy.fallback" : "guidance.proxy.failed",
+      conversationId: body.conversationId,
+      clientRequestId: body.clientRequestId,
+      backendRequestId: failure?.requestId,
+      errorCode: failure?.code || "unknown_error",
+      httpStatus: failure?.status || 503,
+      retryable: Boolean(failure?.retryAfter) || (failure?.status || 503) >= 500,
+      durationMs: Math.round(performance.now() - startedAt),
+    }));
     if (fallback) return fallback;
     return failureResponse(caught);
   }

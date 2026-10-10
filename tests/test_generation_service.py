@@ -479,7 +479,7 @@ def test_grounded_generator_fails_closed_when_semantic_judge_rejects() -> None:
     assert audit.events[-1].metadata["failed_dimensions"] == ("faithfulness",)
 
 
-def test_helpfulness_only_rejection_uses_fallback_signal_after_one_repair() -> None:
+def test_helpfulness_only_rejection_uses_full_repair_budget_before_fallback() -> None:
     class UnhelpfulAnswerValidator:
         threshold = 0.75
 
@@ -512,5 +512,63 @@ def test_helpfulness_only_rejection_uses_fallback_signal_after_one_repair() -> N
         generator.generate(_input())
 
     assert caught.value.trait_id == "result_obsession"
-    assert validator.calls == 2
-    assert len(model.inputs) == 2
+    assert validator.calls == 3
+    assert len(model.inputs) == 3
+
+
+def test_application_focus_targets_complex_family_dilemma() -> None:
+    generation_input = _input().model_copy(
+        update={
+            "message": (
+                "My wife and I disagree about caring for our child while I work abroad. "
+                "How do I balance my family responsibilities?"
+            ),
+            "classification": _input().classification.model_copy(
+                update={
+                    "primary_situation": "relationship_conflict",
+                    "root_conflict": "duty_conflict",
+                }
+            ),
+        }
+    )
+
+    focus = GroundedGuidanceGenerator._application_focus(generation_input)
+
+    assert "responsibility conflict itself" in focus
+    assert "communication" in focus
+    assert "side issue" in focus
+
+
+def test_application_focus_treats_trauma_and_depression_gently() -> None:
+    generation_input = _input().model_copy(
+        update={
+            "message": "Going through trauma and depression about a relationship gone bad",
+            "classification": _input().classification.model_copy(
+                update={"primary_situation": "grief", "root_conflict": "loss"}
+            ),
+        }
+    )
+
+    focus = GroundedGuidanceGenerator._application_focus(generation_input)
+
+    assert "without minimizing" in focus
+    assert "trusted person or qualified professional" in focus
+
+
+def test_application_focus_avoids_specialized_attention_techniques() -> None:
+    generation_input = _input().model_copy(
+        update={
+            "message": "How can I be more attentive and focused?",
+            "classification": _input().classification.model_copy(
+                update={
+                    "primary_situation": "discipline",
+                    "root_conflict": "lack_of_self_control",
+                }
+            ),
+        }
+    )
+
+    focus = GroundedGuidanceGenerator._application_focus(generation_input)
+
+    assert "visibly return" in focus
+    assert "Do not use specialized" in focus

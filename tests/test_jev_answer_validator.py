@@ -85,6 +85,8 @@ def test_answer_validator_accepts_only_when_every_dimension_passes() -> None:
     }
     assert "immediately feasible" in payload["questions"]["helpful"]["instructions"]
     assert "specialized contemplative techniques" in payload["questions"]["helpful"]["instructions"]
+    assert "central concern" in payload["questions"]["helpful"]["instructions"]
+    assert "bounded step" in payload["questions"]["helpful"]["instructions"]
     agency_prompt = payload["questions"]["preserves_agency"]["instructions"]
     assert "assistant-authored framing" in agency_prompt
     assert "clearly attributed exact quotation" in agency_prompt

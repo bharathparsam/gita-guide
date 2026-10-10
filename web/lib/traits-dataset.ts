@@ -412,7 +412,7 @@ kurvan nāpnoti kilbiṣam`
     id: "purpose",
     label: "Purpose",
     type: "work",
-    aliases: ["life purpose", "meaning", "what should I do", "calling", "direction"],
+    aliases: ["life purpose", "meaning", "what should I do", "calling", "direction", "perfect person", "perfection", "improve skill", "skill in action"],
     krishnaSaid: "A person can move toward perfection through the sincere performance of their own work offered to the Supreme.",
     howToOvercome: "Look for the intersection of your nature, responsibility, service, and spiritual orientation.",
     verse: "18.46",

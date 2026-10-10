@@ -20,7 +20,7 @@ from app.reliability import (
 )
 
 
-ANSWER_VALIDATION_PROMPT_VERSION = "jev-answer-validation-v3"
+ANSWER_VALIDATION_PROMPT_VERSION = "jev-answer-validation-v4"
 logger = get_logger("jev_answer_validator")
 
 
@@ -160,13 +160,17 @@ class JevAnswerValidator:
                         "non-generic guidance that reasonably applies the supplied evidence? Practical "
                         "steps need not be verbatim commands from the passage, but they must be low-risk, "
                         "immediately feasible, and connected to an evidenced principle. Reject abstract "
-                        "restatement or specialized contemplative techniques that do not answer what the "
-                        "user can do in the stated situation."
+                        "restatement, an action aimed only at a peripheral detail, or specialized "
+                        "contemplative techniques that do not answer the user's central concern. For a "
+                        "complex dilemma, a bounded step that clarifies constraints, opens a needed "
+                        "conversation, or tests one reversible option can be helpful without pretending "
+                        "to solve the whole problem."
                     ),
                     "criteria": {
                         "true": (
                             "The response offers one or two concrete, situation-specific, low-risk actions "
-                            "that plausibly apply the evidence and can be tried now."
+                            "that plausibly apply the evidence, address the central concern rather than "
+                            "a side issue, and can be tried now."
                         ),
                         "false": (
                             "The response is generic, merely restates evidence, is non-actionable, or "

@@ -69,6 +69,21 @@ def _error(
     response_headers = {"X-Request-ID": request_id}
     if headers:
         response_headers.update(headers)
+    log_fields = {
+        "request_id": request_id,
+        "client_request_id": getattr(request.state, "client_request_id", None),
+        "http_method": request.method,
+        "http_path": request.url.path,
+        "http_status_code": status_code,
+        "error_code": code,
+        "error_stage": details.get("stage") if details else None,
+        "failed_dimensions": details.get("failed_dimensions") if details else None,
+        "retryable": status_code >= 500 or "Retry-After" in response_headers,
+    }
+    if status_code >= 500:
+        logger.error("api.request.failed", extra=log_fields)
+    else:
+        logger.warning("api.request.rejected", extra=log_fields)
     return JSONResponse(
         status_code=status_code,
         content={
@@ -336,8 +351,9 @@ def create_app(
                 status_code=422,
                 code="safety_escalation",
                 message=(
-                    "This message requires immediate safety support and was not "
-                    "sent for classification."
+                    "Your safety matters more than a reflection right now. Please contact "
+                    "local emergency services or a crisis line, and reach out to someone "
+                    "you trust."
                 ),
             )
         except InputSafetyRejection:
@@ -345,7 +361,10 @@ def create_app(
                 request,
                 status_code=422,
                 code="input_blocked",
-                message="This message cannot be processed under the input safety policy.",
+                message=(
+                    "That request has steered the chariot outside this guide’s safety "
+                    "boundaries. Let’s bring it back to the road."
+                ),
             )
         except GuardrailUnavailableError:
             return _error(
@@ -448,28 +467,40 @@ def create_app(
                 request,
                 status_code=422,
                 code="safety_escalation",
-                message="This message requires immediate safety support.",
+                message=(
+                    "Your safety matters more than a reflection right now. Please contact "
+                    "local emergency services or a crisis line, and reach out to someone "
+                    "you trust."
+                ),
             )
         except InputSafetyRejection:
             return _error(
                 request,
                 status_code=422,
                 code="input_blocked",
-                message="This message cannot be processed under the input safety policy.",
+                message=(
+                    "That request has steered the chariot outside this guide’s safety "
+                    "boundaries. Let’s bring it back to the road."
+                ),
             )
         except RetrievalNotEligible:
             return _error(
                 request,
                 status_code=422,
                 code="guidance_not_eligible",
-                message="Grounded guidance is not available for this message.",
+                message=(
+                    "I couldn’t find a trustworthy Gita reflection for this request. "
+                    "Try rephrasing it around the feeling, choice, or situation involved."
+                ),
             )
         except GenerationNotReadyError:
             return _error(
                 request,
                 status_code=422,
                 code="insufficient_evidence",
-                message="No sufficiently grounded passages were available.",
+                message=(
+                    "I couldn’t find passages strong enough to ground a trustworthy answer."
+                ),
             )
         except (GuardrailUnavailableError,):
             return _error(

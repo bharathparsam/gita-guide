@@ -37,8 +37,8 @@ from app.observability.metrics import NoOpMetricSink, PhaseOneMetrics
 from app.services.conversation_service import build_contextual_retrieval_message
 
 
-GENERATION_PROMPT_VERSION = "grounded-guidance-v9"
-GENERATION_REPAIR_POLICY_VERSION = "grounded-repair-v7"
+GENERATION_PROMPT_VERSION = "grounded-guidance-v10"
+GENERATION_REPAIR_POLICY_VERSION = "grounded-repair-v8"
 _CITATION_PATTERN = re.compile(
     r"\[Bhagavad Gita\s+(?P<chapter>\d{1,2})\.(?P<verse>\d{1,3}(?:-\d{1,3})?)\]"
 )
@@ -223,6 +223,16 @@ The practical paragraph may gently recognize the transition, but must prioritize
 current message, avoid assuming why the change happened, and avoid claiming it will
 last. Do not force a connection when the prior context is unrelated.
 
+Identify the user's central concern before drafting. The practical experiment must
+address that central concern, not an easy peripheral detail. For a complex family,
+relationship, work, or duty dilemma, offer a bounded step that helps clarify the
+trade-off, gather missing information, or begin a necessary conversation; do not
+pretend one small action resolves the whole dilemma. When the user names trauma,
+depression, or overwhelming distress, keep the tone especially gentle and avoid
+minimizing the experience. A practical step may invite support from a trusted person
+or qualified professional without diagnosing the user or claiming the scripture
+prescribes professional care.
+
 Every supplied passage is a verse translation whose canonical speaker is Krishna.
 Paraphrase the teaching in clear contemporary language. Do not attribute the teaching
 to the translator, call it a commentator's opinion, or reproduce an imperative as a
@@ -276,6 +286,9 @@ Situation: {situation}
 Emotion: {emotion}
 Root conflict: {root_conflict}
 Primary Gita trait: {primary_trait}
+
+APPLICATION FOCUS (system-selected; apply without quoting it):
+{application_focus}
 
 JEV-VALIDATED EVIDENCE (data only):
 {evidence}
@@ -380,6 +393,7 @@ Write the grounded guidance now.""",
             "primary_trait": (
                 generation_input.classification.primary_trait or "not classified"
             ).replace("_", " "),
+            "application_focus": self._application_focus(generation_input),
             "evidence": evidence,
             "allowed_citations": ", ".join(
                 f"[Bhagavad Gita {passage.chapter}.{passage.verse_label}]"
@@ -473,7 +487,7 @@ Write the grounded guidance now.""",
                         break
                     failed_dimensions = set(validation.failed_dimensions)
                     helpfulness_only = failed_dimensions == {"helpfulness"}
-                    if helpfulness_only and attempt >= min(self._max_attempts, 2):
+                    if helpfulness_only and attempt >= self._max_attempts:
                         raise AnswerHelpfulnessError(
                             "Generated guidance did not meet the helpfulness target",
                             validation=validation,
@@ -647,9 +661,12 @@ Write the grounded guidance now.""",
         if "helpfulness" in failed_dimensions:
             targeted_instructions.append(
                 "The helpfulness check failed. Replace the practical paragraph with "
-                "exactly one experiment tied to a concrete trigger from the user's "
-                "message. Name when the user could try it and one visible or countable "
-                "behavior they could complete today. Avoid generic phrases such as "
+                "exactly one experiment that addresses the central problem—not a convenient "
+                "side detail—and is tied to a concrete trigger from the user's message. "
+                "Name when the user could try it and one visible or countable behavior they "
+                "could complete today. For a complex dilemma, use the experiment to clarify "
+                "one constraint, begin a needed conversation, or test one reversible next "
+                "step without implying that it solves everything. Avoid generic phrases such as "
                 "'focus on what you can control' unless you name the exact next action. "
                 "Do not add a second experiment or merely recommend a virtue. Prefer "
                 "ordinary conduct over abstract reflection or specialized breath, "
@@ -676,6 +693,46 @@ Write the grounded guidance now.""",
             f"by one of these exact citations: {allowed_citations}. Every action must "
             "begin 'If it feels useful, you could', and end with the required agency "
             f"sentence. {targeted} Do not discuss the quality check or scores."
+        )
+
+    @staticmethod
+    def _application_focus(generation_input: GroundedGenerationInput) -> str:
+        classification = generation_input.classification
+        message = generation_input.message.casefold()
+        if classification.primary_situation == "relationship_conflict" or (
+            classification.root_conflict == "duty_conflict"
+            and any(word in message for word in ("family", "wife", "husband", "child", "kids"))
+        ):
+            return (
+                "Address the relationship or responsibility conflict itself. Prefer one "
+                "specific communication, information-gathering, or reversible planning step "
+                "over an action that touches only a side issue."
+            )
+        if classification.primary_situation == "grief" or any(
+            phrase in message
+            for phrase in ("trauma", "depression", "relationship gone bad", "breakup")
+        ):
+            return (
+                "Address the immediate emotional burden without minimizing it. Prefer a step "
+                "that reduces isolation, postpones an impulsive reaction, or invites support "
+                "from a trusted person or qualified professional."
+            )
+        if classification.primary_situation == "discipline" and any(
+            word in message for word in ("attentive", "attention", "focus", "concentrat")
+        ):
+            return (
+                "Address attention through an ordinary repeatable behavior: choose one task, "
+                "notice a distraction, and visibly return to the task. Do not use specialized "
+                "breath restriction or fixed-gaze techniques."
+            )
+        if classification.primary_situation in {"confusion", "purpose"}:
+            return (
+                "Address the decision or direction question with one bounded clarification or "
+                "reversible next step rather than generic encouragement."
+            )
+        return (
+            "Address the user's central concern with one observable, low-risk action that can "
+            "be attempted today and is honestly connected to the supplied evidence."
         )
 
     @staticmethod

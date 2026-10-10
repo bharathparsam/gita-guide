@@ -205,6 +205,43 @@
       ]
     },
     {
+      "id": "relationship_loss_distress",
+      "message": "Going through trauma and depression about a relationship gone bad",
+      "relevant_chunk_ids": [
+        "bhagavad-gita-as-it-is:02:014-014:translation:001",
+        "bhagavad-gita-as-it-is:06:005-005:translation:001",
+        "bhagavad-gita-as-it-is:12:013-014:translation:001",
+        "bhagavad-gita-as-it-is:12:017-017:translation:001",
+        "bhagavad-gita-as-it-is:12:019-019:translation:001"
+      ],
+      "forbidden_chunk_ids": [
+        "bhagavad-gita-as-it-is:02:025-025:translation:001"
+      ],
+      "minimum_relevant_hits": 1,
+      "tags": [
+        "relationship-loss",
+        "distress",
+        "actionability-regression"
+      ]
+    },
+    {
+      "id": "family_duty_conflict_abroad",
+      "message": "My wife is struggling to care for our child while I work abroad for the family's financial security. The children are suffering and I do not know what responsibility to prioritize.",
+      "relevant_chunk_ids": [
+        "bhagavad-gita-as-it-is:02:047-047:translation:001",
+        "bhagavad-gita-as-it-is:03:035-035:translation:001",
+        "bhagavad-gita-as-it-is:12:013-014:translation:001",
+        "bhagavad-gita-as-it-is:17:015-015:translation:001",
+        "bhagavad-gita-as-it-is:18:047-047:translation:001"
+      ],
+      "minimum_relevant_hits": 1,
+      "tags": [
+        "family",
+        "duty-conflict",
+        "actionability-regression"
+      ]
+    },
+    {
       "id": "weather_out_of_scope",
       "message": "Will it rain in Hyderabad tomorrow afternoon?",
       "expect_abstention": true,

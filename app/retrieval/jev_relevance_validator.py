@@ -20,7 +20,7 @@ from app.reliability import (
 )
 
 
-JEV_RETRIEVAL_VALIDATION_PROMPT_VERSION = "jev-retrieval-validation-v2"
+JEV_RETRIEVAL_VALIDATION_PROMPT_VERSION = "jev-retrieval-validation-v3"
 logger = get_logger("jev_retrieval_validator")
 
 
@@ -35,6 +35,7 @@ class ChunkValidation:
     accepted: bool
     relevant_probability: float | None = None
     groundable_probability: float | None = None
+    actionable_probability: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,6 +171,28 @@ class JevRetrievalValidator:
                     ),
                 },
             }
+            questions[f"{field}_actionable"] = {
+                "type": "noul",
+                "instructions": (
+                    f"Can the concrete principle actually stated in `{field}` support an "
+                    "ordinary, low-risk, situation-specific next step for `retrieval_context`? "
+                    "Reject a passage that is only topically related, offers consolation without "
+                    "a usable principle, addresses death or the body when the stated loss is a "
+                    "living relationship, or mainly describes a specialized breath, gaze, posture, "
+                    "ritual, or contemplative technique the user did not request."
+                ),
+                "criteria": {
+                    "true": (
+                        "The passage contains a principle that can honestly support practical "
+                        "conduct, a bounded decision step, or an immediately usable reflection "
+                        "for the user's central concern."
+                    ),
+                    "false": (
+                        "A useful action would have to come mostly from outside the passage, or "
+                        "the passage addresses only a peripheral or materially different concern."
+                    ),
+                },
+            }
         payload = {
             "model": self.model_name,
             "state": state,
@@ -263,7 +286,7 @@ class JevRetrievalValidator:
         results: list[ChunkValidation] = []
         for index, document in enumerate(documents):
             probabilities: dict[str, float] = {}
-            for suffix in ("relevant", "groundable"):
+            for suffix in ("relevant", "groundable", "actionable"):
                 name = f"candidate_{index}_{suffix}"
                 answer = answers.get(name)
                 if not isinstance(answer, dict) or answer.get("type") != "noul":
@@ -288,6 +311,7 @@ class JevRetrievalValidator:
                     accepted=resolved_probability >= self.threshold,
                     relevant_probability=probabilities["relevant"],
                     groundable_probability=probabilities["groundable"],
+                    actionable_probability=probabilities["actionable"],
                 )
             )
         return RetrievalValidation(

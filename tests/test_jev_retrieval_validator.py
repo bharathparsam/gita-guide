@@ -48,8 +48,10 @@ def _response() -> Mock:
         "answers": {
             "candidate_0_relevant": {"type": "noul", "noul": 0.92},
             "candidate_0_groundable": {"type": "noul", "noul": 0.88},
+            "candidate_0_actionable": {"type": "noul", "noul": 0.86},
             "candidate_1_relevant": {"type": "noul", "noul": 0.22},
             "candidate_1_groundable": {"type": "noul", "noul": 0.81},
+            "candidate_1_actionable": {"type": "noul", "noul": 0.18},
         },
     }
     return response
@@ -71,16 +73,19 @@ def test_jev_validates_all_retrieved_chunks_in_one_typed_request() -> None:
 
     assert session.post.call_count == 1
     assert [item.accepted for item in result.chunks] == [True, False]
-    assert [item.relevance_probability for item in result.chunks] == [0.88, 0.22]
+    assert [item.relevance_probability for item in result.chunks] == [0.86, 0.18]
     assert [item.relevant_probability for item in result.chunks] == [0.92, 0.22]
     assert [item.groundable_probability for item in result.chunks] == [0.88, 0.81]
+    assert [item.actionable_probability for item in result.chunks] == [0.86, 0.18]
     assert result.provider_request_id == "validation-decision-1"
     payload = session.post.call_args.kwargs["json"]
     assert set(payload["questions"]) == {
         "candidate_0_relevant",
         "candidate_0_groundable",
+        "candidate_0_actionable",
         "candidate_1_relevant",
         "candidate_1_groundable",
+        "candidate_1_actionable",
     }
     assert payload["state"]["candidate_0"]["candidate_id"] == "gita:2:47"
 
@@ -94,3 +99,23 @@ def test_jev_retrieval_validation_fails_closed_on_missing_decision() -> None:
 
     with pytest.raises(RetrievalValidationError, match="candidate_1_relevant"):
         validator.validate("context", _documents())
+
+
+def test_actionability_gate_rejects_topical_but_unusable_evidence() -> None:
+    session = Mock()
+    session.post.return_value = _response()
+    validator = JevRetrievalValidator(_settings(), threshold=0.65, session=session)
+
+    result = validator.validate(
+        "User situation: relationship grief after a breakup",
+        _documents(),
+    )
+
+    assert result.chunks[1].relevant_probability == 0.22
+    assert result.chunks[1].groundable_probability == 0.81
+    assert result.chunks[1].actionable_probability == 0.18
+    assert result.chunks[1].accepted is False
+    payload = session.post.call_args.kwargs["json"]
+    actionable = payload["questions"]["candidate_1_actionable"]["instructions"]
+    assert "living relationship" in actionable
+    assert "specialized breath" in actionable

@@ -10,7 +10,7 @@ The result is a guest-first chat experience that feels gentle on the surface and
 
 Most RAG demos stop after vector search and generation. Gita Guide treats those as only two steps in a larger evidence pipeline:
 
-- **Decision-first understanding.** JEV converts an open-ended message into typed situation, emotion, root-conflict, and Gita-trait decisions with confidence.
+- **Decision-first understanding.** JEV converts an open-ended message into typed situation, emotion, root-conflict, and Gita-trait decisions with confidence. Narrow deterministic intent expansions also protect short reflective questions from a single uncertain scope decision.
 - **A provenance-checked local corpus.** The repository ships verse-aware chunks and a precomputed embedding matrix; runtime search does not depend on a hosted vector database.
 - **Evidence must earn its way into the prompt.** Dense retrieval, curated anchors, MMR diversity, source filters, and an independent JEV relevance decision all run before generation.
 - **The generator is not the judge.** DeepSeek writes the response; JEV independently checks faithfulness, citation coverage, helpfulness, and user agency.
@@ -65,7 +65,8 @@ The retrieval query is more than the last user sentence. It combines:
 - the current message, which always remains authoritative;
 - bounded prior conversation context when it changes the meaning of the request;
 - only high-confidence JEV classifications;
-- a versioned mapping from everyday situations to vocabulary used by the Gita corpus.
+- a versioned mapping from everyday situations to vocabulary used by the Gita corpus;
+- narrow message-intent expansions for underspecified questions such as “what makes a person perfect?” or “how can I improve my skill?”
 
 Low-confidence fields are omitted instead of contaminating the query. This is important for short human messages, where one incorrect label can otherwise dominate dense retrieval.
 

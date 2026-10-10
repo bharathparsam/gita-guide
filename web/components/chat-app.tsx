@@ -17,32 +17,16 @@ import type {
   TraitReflection,
   TraitType,
 } from "@/lib/types";
+import {
+  ChatRequestError,
+  friendlyFailure,
+  OFFLINE_FALLBACK_CODES,
+} from "@/lib/failure-guidance";
 import { BookIcon, CloseIcon, LeafIcon, MenuIcon, PlusIcon, SendIcon, SparkIcon } from "@/components/icons";
 
 type ApiError = { error?: { code?: string; message?: string; requestId?: string } };
 
-class ChatRequestError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly code?: string,
-    readonly requestId?: string,
-  ) {
-    super(message);
-  }
-}
-
-const OFFLINE_FALLBACK_CODES = new Set([
-  "insufficient_evidence",
-  "guidance_failed",
-  "guidance_not_helpful",
-  "generation_service_unavailable",
-  "upstream_timeout",
-  "upstream_unavailable",
-  "invalid_upstream_response",
-  "not_configured",
-  "service_unavailable",
-]);
+type RecoveryAction = "retry" | "browse" | null;
 
 const STARTERS = [
   "I am anxious about an outcome I cannot control.",
@@ -124,6 +108,7 @@ export function ChatApp() {
   const [progressStage, setProgressStage] = useState(0);
   const [error, setError] = useState("");
   const [failedMessage, setFailedMessage] = useState("");
+  const [recoveryAction, setRecoveryAction] = useState<RecoveryAction>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [offlineMode, setOfflineMode] = useState(false);
   const [offlinePickerOpen, setOfflinePickerOpen] = useState(false);
@@ -185,6 +170,7 @@ export function ChatApp() {
     setActiveId(conversation.id);
     setDraft("");
     setError("");
+    setRecoveryAction(null);
     setSidebarOpen(false);
     requestAnimationFrame(() => textAreaRef.current?.focus());
   }
@@ -194,6 +180,7 @@ export function ChatApp() {
     setOfflinePickerOpen(enabled);
     setError("");
     setFailedMessage("");
+    setRecoveryAction(null);
   }
 
   function closeOfflinePicker() {
@@ -220,6 +207,7 @@ export function ChatApp() {
     }));
     setError("");
     setFailedMessage("");
+    setRecoveryAction(null);
     setOfflineSearch("");
     setOfflinePickerOpen(false);
     requestAnimationFrame(() => textAreaRef.current?.focus());
@@ -239,6 +227,7 @@ export function ChatApp() {
     setDraft("");
     setError("");
     setFailedMessage("");
+    setRecoveryAction(null);
     updateConversation(target.id, (conversation) => ({
       ...conversation,
       title: conversation.messages.length ? conversation.title : titleFromMessage(message),
@@ -251,12 +240,14 @@ export function ChatApp() {
       if (safety.action !== "allow") {
         setError(safety.message);
         setFailedMessage(message);
+        setRecoveryAction(null);
         return;
       }
       const reflection = createOfflineReflection(message, "chosen");
       if (!reflection) {
         setError("The offline guide could not confidently match this message to a trait. Try naming the emotion or situation more directly, or switch to live guidance.");
         setFailedMessage(message);
+        setRecoveryAction("browse");
         return;
       }
       updateConversation(target.id, (conversation) => ({
@@ -311,10 +302,10 @@ export function ChatApp() {
           messages: [...conversation.messages, reflection],
         }));
       } else {
-        const baseMessage = caught instanceof Error ? caught.message : "Something went wrong. Please try again.";
-        const reference = caught instanceof ChatRequestError ? caught.requestId : undefined;
-        setError(reference ? `${baseMessage} Reference: ${reference}` : baseMessage);
-        setFailedMessage(message);
+        const failure = friendlyFailure(caught);
+        setError(failure.message);
+        setRecoveryAction(failure.action);
+        setFailedMessage(failure.action === "retry" ? message : "");
       }
     } finally {
       setSending(false);
@@ -455,7 +446,17 @@ export function ChatApp() {
               )}
             </section>
           ) : null}
-          {error ? <div className="chat-error" role="alert"><span>{error}</span>{failedMessage ? <button type="button" onClick={() => void send(failedMessage)} disabled={sending}>Try again</button> : null}</div> : null}
+          {error ? (
+            <div className={`chat-error${recoveryAction === "browse" ? " chat-error--gentle" : ""}`} role="alert">
+              <span>{error}</span>
+              {recoveryAction === "retry" && failedMessage ? (
+                <button type="button" onClick={() => void send(failedMessage)} disabled={sending}>Try again</button>
+              ) : null}
+              {recoveryAction === "browse" ? (
+                <button type="button" onClick={() => { setOfflineMode(true); setOfflinePickerOpen(true); setError(""); setRecoveryAction(null); }}>Browse traits</button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="guidance-mode" id="guidance-mode-help">
             <button
               ref={offlineToggleRef}

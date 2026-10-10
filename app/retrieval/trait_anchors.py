@@ -113,16 +113,33 @@ SITUATION_VERSE_ANCHORS: dict[str, tuple[str, ...]] = {
     "relationship_conflict": ("12.13", "17.15"),
 }
 
+MESSAGE_INTENT_VERSE_ANCHORS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("perfection_of_person", ("12.13", "12.14", "12.18", "18.46")),
+    ("skillful_action", ("2.50", "18.26")),
+    ("relationship_loss", ("2.14", "6.5", "12.13", "12.17", "12.19")),
+)
+
 
 def curated_anchor_verse_labels(
     classification: ClassificationResult,
+    *,
+    message_intents: tuple[str, ...] = (),
 ) -> tuple[str, ...]:
     """Return curated verse labels to resolve against the active corpus."""
-    trait = classification.primary_trait or _SITUATION_TRAIT_FALLBACKS[
-        classification.primary_situation
-    ]
+    trait = (
+        classification.primary_trait
+        if classification.primary_trait is not None
+        and "primary_trait" not in classification.low_confidence_fields
+        else _SITUATION_TRAIT_FALLBACKS[classification.primary_situation]
+    )
     labels = (
         TRAIT_VERSE_ANCHORS[trait],
         *SITUATION_VERSE_ANCHORS.get(classification.primary_situation, ()),
+        *(
+            verse
+            for intent, verses in MESSAGE_INTENT_VERSE_ANCHORS
+            if intent in message_intents
+            for verse in verses
+        ),
     )
     return tuple(dict.fromkeys(labels))

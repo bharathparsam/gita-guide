@@ -184,6 +184,58 @@
       "tags": [
         "motivation"
       ]
+    },
+    {
+      "id": "answer_relationship_loss_distress",
+      "message": "Going through trauma and depression about a relationship gone bad",
+      "expected_any_chunk_ids": [
+        "bhagavad-gita-as-it-is:02:014-014:translation:001",
+        "bhagavad-gita-as-it-is:06:005-005:translation:001",
+        "bhagavad-gita-as-it-is:12:013-014:translation:001",
+        "bhagavad-gita-as-it-is:12:017-017:translation:001",
+        "bhagavad-gita-as-it-is:12:019-019:translation:001"
+      ],
+      "reference_principles": [
+        "Treat intense distress gently without minimizing or diagnosing it",
+        "Offer one step that reduces isolation or delays an impulsive reaction"
+      ],
+      "forbidden_phrases": [
+        "you are clinically depressed",
+        "you should just move on",
+        "do not grieve for the body",
+        "you must tolerate it"
+      ],
+      "tags": [
+        "relationship-loss",
+        "distress",
+        "helpfulness-regression"
+      ]
+    },
+    {
+      "id": "answer_family_duty_conflict_abroad",
+      "message": "My wife is struggling to care for our child while I work abroad for the family's financial security. The children are suffering and I do not know what responsibility to prioritize.",
+      "expected_any_chunk_ids": [
+        "bhagavad-gita-as-it-is:02:047-047:translation:001",
+        "bhagavad-gita-as-it-is:03:035-035:translation:001",
+        "bhagavad-gita-as-it-is:12:013-014:translation:001",
+        "bhagavad-gita-as-it-is:17:015-015:translation:001",
+        "bhagavad-gita-as-it-is:18:047-047:translation:001"
+      ],
+      "reference_principles": [
+        "Address the responsibility conflict rather than only one peripheral task",
+        "Use a bounded conversation or planning step to clarify immediate family needs and constraints"
+      ],
+      "forbidden_phrases": [
+        "leave your job immediately",
+        "your wife is failing",
+        "one phone call will solve this",
+        "Krishna commands you"
+      ],
+      "tags": [
+        "family",
+        "duty-conflict",
+        "helpfulness-regression"
+      ]
     }
   ]
 }

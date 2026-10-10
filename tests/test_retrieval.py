@@ -140,7 +140,7 @@ def test_retrieval_chain_uses_phase_one_classification(tmp_path: Path) -> None:
 
     assert output["documents"][0].metadata["chapter"] == 2
     assert "Primary situation: outcome anxiety" in output["retrieval_query"]
-    assert "concept expansion (gita-concepts-v6)" in output["retrieval_query"]
+    assert "concept expansion (gita-concepts-v8)" in output["retrieval_query"]
     assert "Root conflict: attachment to results" in build_classification_query(
         "I fear failing", classification()
     )
@@ -151,11 +151,63 @@ def test_anger_query_expands_toward_safe_conduct_evidence() -> None:
         "How can I act well when I feel angry?", anger_classification()
     )
 
-    assert "concept expansion (gita-concepts-v6)" in query
+    assert "concept expansion (gita-concepts-v8)" in query
     assert "non-injury" in query
     assert "self-control" in query
     assert "conduct speech" in query
     assert "beneficial" in query
+
+
+def test_general_perfection_question_gets_direct_semantic_expansion() -> None:
+    general = classification().model_copy(
+        update={
+            "primary_situation": "purpose",
+            "primary_emotion": "calm",
+            "root_conflict": "other",
+            "primary_trait": "purpose",
+            "primary_trait_confidence": 0.86,
+        }
+    )
+
+    query = build_classification_query(
+        "What makes a person to be called as perfect?",
+        general,
+    )
+
+    assert "Message intent expansion (perfection_of_person; gita-concepts-v8)" in query
+    assert "compassion self-control devotion steady wisdom" in query
+
+
+def test_skill_improvement_question_gets_skillful_action_expansion() -> None:
+    query = build_classification_query(
+        "How to be called as perfect or improve my skill?",
+        classification(),
+    )
+
+    assert "Message intent expansion (perfection_of_person; gita-concepts-v8)" in query
+    assert "Message intent expansion (skillful_action; gita-concepts-v8)" in query
+
+
+def test_relationship_loss_gets_supportive_semantic_expansion() -> None:
+    grieving = classification().model_copy(
+        update={
+            "primary_situation": "grief",
+            "primary_emotion": "sadness",
+            "root_conflict": "loss",
+            "primary_trait": "grief",
+            "primary_trait_confidence": 0.39,
+            "needs_review": True,
+            "low_confidence_fields": ("primary_trait",),
+        }
+    )
+
+    query = build_classification_query(
+        "Going through trauma and depression about a relationship gone bad",
+        grieving,
+    )
+
+    assert "Message intent expansion (relationship_loss; gita-concepts-v8)" in query
+    assert "compassion steadiness support recovery" in query
 
 
 def test_retrieval_query_includes_only_confident_primary_trait() -> None:

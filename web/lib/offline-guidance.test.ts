@@ -86,6 +86,8 @@ describe("offline guidance", () => {
     expect(emotions).toHaveLength(9);
     expect(emotions.every(({ type }) => type === "emotion")).toBe(true);
     expect(searchOfflineTraits("racing thoughts").map(({ id }) => id)).toContain("restless_mind");
+    expect(searchOfflineTraits("perfect person").map(({ id }) => id)).toContain("purpose");
+    expect(searchOfflineTraits("improve skill").map(({ id }) => id)).toContain("purpose");
   });
 
   it("creates guidance directly from a selected trait", () => {

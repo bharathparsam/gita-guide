@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from collections.abc import Iterable, Sequence
 from typing import Any, Protocol, cast
@@ -13,7 +14,7 @@ from langchain_core.runnables import Runnable, RunnableLambda
 from app.models.classification import ClassificationResult
 
 
-RETRIEVAL_QUERY_EXPANSION_VERSION = "gita-concepts-v6"
+RETRIEVAL_QUERY_EXPANSION_VERSION = "gita-concepts-v8"
 _SITUATION_QUERY_EXPANSIONS = {
     "fear_of_failure": "action courage success failure steadiness",
     "outcome_anxiety": "work action fruit result success failure equanimity",
@@ -32,6 +33,48 @@ _SITUATION_QUERY_EXPANSIONS = {
         "equanimity truthful beneficial speech avoid offending false ego"
     ),
 }
+
+# Short, general questions often contain too little personal context for the
+# classifier alone to produce a useful search query. These narrow lexical
+# intents add Gita vocabulary without replacing the model's typed decision.
+_MESSAGE_INTENT_EXPANSIONS: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    (
+        "perfection_of_person",
+        re.compile(
+            r"\b(?:perfect\s+person|person\s+(?:to\s+be\s+)?called\s+(?:as\s+)?perfect|"
+            r"what\s+makes\s+(?:a\s+)?person\s+perfect|how\s+to\s+(?:be|become)\s+perfect|"
+            r"how\s+to\s+be\s+called\s+(?:as\s+)?perfect)\b",
+            re.IGNORECASE,
+        ),
+        "perfect person spiritual perfection qualities character humility equanimity "
+        "compassion self-control devotion steady wisdom",
+    ),
+    (
+        "skillful_action",
+        re.compile(
+            r"\b(?:improv(?:e|ing)\s+(?:my\s+)?skills?|become\s+more\s+skilled|"
+            r"skill\s+in\s+action|excellence\s+in\s+(?:work|action))\b",
+            re.IGNORECASE,
+        ),
+        "skill in action excellence work practice discipline duty effort yoga",
+    ),
+    (
+        "relationship_loss",
+        re.compile(
+            r"\b(?:relationship\s+(?:(?:has\s+)?gone\s+bad|ended|failed)|"
+            r"break[ -]?up|heartbreak|separation|partner\s+(?:left|leaving))\b",
+            re.IGNORECASE,
+        ),
+        "relationship loss grief heartbreak distress compassion steadiness support recovery",
+    ),
+)
+
+
+def matched_message_intents(message: str) -> tuple[str, ...]:
+    """Return stable semantic intents detected directly from the user's words."""
+    return tuple(
+        name for name, pattern, _ in _MESSAGE_INTENT_EXPANSIONS if pattern.search(message)
+    )
 
 
 class RetrievalCorpusError(RuntimeError):
@@ -94,6 +137,12 @@ def build_classification_query(
         lines.append(
             f"Primary Gita trait: {classification.primary_trait.replace('_', ' ')}"
         )
+    for name, pattern, expansion in _MESSAGE_INTENT_EXPANSIONS:
+        if pattern.search(message):
+            lines.append(
+                f"Message intent expansion ({name}; {RETRIEVAL_QUERY_EXPANSION_VERSION}): "
+                f"{expansion}"
+            )
     return "\n".join(lines)
 
 

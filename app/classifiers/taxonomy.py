@@ -1,4 +1,4 @@
-TAXONOMY_VERSION = "2.0"
+TAXONOMY_VERSION = "2.1"
 
 
 # Fine-grained application themes grounded in concerns or qualities discussed in the
@@ -118,7 +118,8 @@ SITUATIONS = {
         "without a dominant impulse-control problem."
     ),
     "purpose": (
-        "A broad question about meaning, identity, calling, values, or direction in life rather "
+        "A broad question about meaning, identity, calling, values, direction in life, or the "
+        "qualities of an ideal, virtuous, spiritually mature, or 'perfect' person rather "
         "than a choice between specific actions. Do not use for remorse about one action or "
         "self-criticism about craving praise."
     ),

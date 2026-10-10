@@ -8,6 +8,7 @@ import numpy as np
 from app.classifiers.taxonomy import GITA_TRAITS
 from app.models.classification import ClassificationResult
 from app.retrieval.trait_anchors import (
+    MESSAGE_INTENT_VERSE_ANCHORS,
     SITUATION_VERSE_ANCHORS,
     TRAIT_VERSE_ANCHORS,
     curated_anchor_verse_labels,
@@ -154,6 +155,11 @@ def test_every_trait_anchor_resolves_to_a_translation_chunk() -> None:
         for labels in SITUATION_VERSE_ANCHORS.values()
         for label in labels
     } <= translation_verses
+    assert {
+        label
+        for _, labels in MESSAGE_INTENT_VERSE_ANCHORS
+        for label in labels
+    } <= translation_verses
 
 
 def test_relationship_conflict_includes_concrete_conduct_anchors() -> None:
@@ -199,6 +205,71 @@ def test_anger_includes_actionable_conduct_anchors() -> None:
         "2.64",
         "17.15",
         "17.16",
+    )
+
+
+def test_perfection_intent_includes_qualities_and_purpose_anchors() -> None:
+    classification = ClassificationResult(
+        in_scope=False,
+        in_scope_probability=0.42,
+        primary_situation="purpose",
+        primary_situation_confidence=0.8,
+        primary_emotion="calm",
+        primary_emotion_confidence=0.8,
+        root_conflict="other",
+        root_conflict_confidence=0.7,
+        primary_trait="purpose",
+        primary_trait_confidence=0.85,
+    )
+
+    assert curated_anchor_verse_labels(
+        classification,
+        message_intents=("perfection_of_person",),
+    ) == ("18.46", "12.13", "12.14", "12.18")
+
+
+def test_relationship_loss_intent_includes_supportive_anchors() -> None:
+    classification = ClassificationResult(
+        in_scope=True,
+        in_scope_probability=0.99,
+        primary_situation="grief",
+        primary_situation_confidence=0.97,
+        primary_emotion="sadness",
+        primary_emotion_confidence=0.97,
+        root_conflict="loss",
+        root_conflict_confidence=1.0,
+        primary_trait="grief",
+        primary_trait_confidence=0.39,
+        needs_review=True,
+        low_confidence_fields=("primary_trait",),
+    )
+
+    assert curated_anchor_verse_labels(
+        classification,
+        message_intents=("relationship_loss",),
+    ) == ("2.14", "6.5", "12.13", "12.17", "12.19")
+
+
+def test_low_confidence_trait_does_not_choose_the_curated_anchor() -> None:
+    classification = ClassificationResult(
+        in_scope=True,
+        in_scope_probability=0.98,
+        primary_situation="relationship_conflict",
+        primary_situation_confidence=0.94,
+        primary_emotion="sadness",
+        primary_emotion_confidence=0.9,
+        root_conflict="duty_conflict",
+        root_conflict_confidence=0.88,
+        primary_trait="success",
+        primary_trait_confidence=0.35,
+        needs_review=True,
+        low_confidence_fields=("primary_trait",),
+    )
+
+    assert curated_anchor_verse_labels(classification) == (
+        "12.18",
+        "12.13",
+        "17.15",
     )
 
 

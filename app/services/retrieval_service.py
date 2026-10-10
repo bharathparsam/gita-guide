@@ -22,6 +22,7 @@ from app.retrieval.gita_vector_retriever import (
     GitaVectorRetriever,
     RetrievalCorpusError,
     build_classification_query,
+    matched_message_intents,
 )
 from app.retrieval.jev_relevance_validator import (
     RetrievalValidationError,
@@ -30,7 +31,7 @@ from app.retrieval.jev_relevance_validator import (
 from app.retrieval.trait_anchors import curated_anchor_verse_labels
 
 
-RETRIEVAL_PIPELINE_VERSION = "retrieval-v6"
+RETRIEVAL_PIPELINE_VERSION = "retrieval-v8"
 RERANKER_VERSION = "dense-mmr-v1"
 logger = get_logger("retrieval")
 
@@ -355,6 +356,7 @@ class RetrievalExecutor:
                         "chunk_id": item.chunk_id,
                         "relevant_probability": item.relevant_probability,
                         "groundable_probability": item.groundable_probability,
+                        "actionable_probability": item.actionable_probability,
                         "relevance_probability": item.relevance_probability,
                         "accepted": item.accepted,
                     }
@@ -566,15 +568,26 @@ def build_filtered_retrieval_chain(
 
     def pre_filter(state: RetrievalState) -> RetrievalState:
         classification = ClassificationResult.model_validate(state["classification"])
-        if not classification.in_scope:
+        message_intents = matched_message_intents(state["message"])
+        scope_rescued_by_message_intent = bool(message_intents) and (
+            not classification.in_scope
+            or "in_scope" in classification.low_confidence_fields
+        )
+        if not classification.in_scope and not scope_rescued_by_message_intent:
             raise RetrievalNotEligible("Out-of-scope classifications are not retrieved")
-        if "in_scope" in classification.low_confidence_fields:
+        if (
+            "in_scope" in classification.low_confidence_fields
+            and not scope_rescued_by_message_intent
+        ):
             raise RetrievalNotEligible("Low-confidence scope decisions require review")
         query = build_classification_query(
             state.get("retrieval_message", state["message"]), classification
         )
         anchor_chunk_ids = executor.resolve_anchor_chunk_ids(
-            curated_anchor_verse_labels(classification)
+            curated_anchor_verse_labels(
+                classification,
+                message_intents=message_intents,
+            )
         )
         logger.info(
             "phase2.retrieval.pre_filter_completed",
@@ -586,6 +599,8 @@ def build_filtered_retrieval_chain(
                 "omitted_low_confidence_fields": list(
                     classification.low_confidence_fields
                 ),
+                "message_intents": list(message_intents),
+                "scope_rescued_by_message_intent": scope_rescued_by_message_intent,
                 "allowed_source_count": len(executor.cache_context.allowed_source_ids),
                 "allowed_speaker_count": len(executor.cache_context.allowed_speakers),
                 "allowed_section_count": len(executor.cache_context.allowed_sections),
