@@ -94,7 +94,9 @@ _AMBIGUOUS_VERSE_REFERENCE_PATTERN = re.compile(
     r"\b(?:what\s+is\s+|show\s+me\s+|explain\s+)?(?:the\s+)?"
     r"\d{1,3}(?:st|nd|rd|th)?\s+verse\b[^\n]{0,40}\b(?:gita|bhagavad)\b|"
     r"\b(?:gita|bhagavad)\b[^\n]{0,40}\b(?:the\s+)?"
-    r"\d{1,3}(?:st|nd|rd|th)?\s+verse\b",
+    r"\d{1,3}(?:st|nd|rd|th)?\s+verse\b|"
+    r"\b(?:what\s+(?:is|was)\s+(?:said|written)\s+in|give\s+me|show\s+me|"
+    r"explain)\s+(?:the\s+)?\d{1,3}(?:st|nd|rd|th)?\s+verse\b",
     re.IGNORECASE,
 )
 

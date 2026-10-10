@@ -22,6 +22,7 @@ from app.services.generation_service import (
     GenerationProviderUnavailableError,
     GroundedGuidanceGenerator,
     OutputSafetyError,
+    build_direct_verse_response,
 )
 
 
@@ -98,6 +99,22 @@ def _input() -> GroundedGenerationInput:
 
 def _allow(_: str) -> GuardrailDecision:
     return GuardrailDecision(action=InputSafetyAction.ALLOW, provider="test-output-rail")
+
+
+def test_direct_verse_lookup_returns_verified_passage_without_model_generation() -> None:
+    generation_input = _input().model_copy(
+        update={"message": "give me the 2.47 verse"}
+    )
+
+    response = build_direct_verse_response(generation_input)
+
+    assert response is not None
+    assert response.model == "verified-corpus-lookup"
+    assert response.presentation.label == "Chapter 2, Verse 47"
+    assert response.presentation.what_krishna_said == (
+        "Your right is to work only, never to its fruits. [Bhagavad Gita 2.47]"
+    )
+    assert response.grounded_chunk_ids == ("gita:2:47",)
 
 
 class AllowAnswerValidator:

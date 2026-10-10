@@ -62,6 +62,7 @@ from app.services.retrieval_service import (
 from app.services.grounding_context_service import invoke_grounding_context_chain
 from app.services.generation_service import (
     GroundedGuidanceGenerator,
+    build_direct_verse_response,
     build_grounded_generation_input,
 )
 from app.services.conversation_service import (
@@ -501,7 +502,19 @@ class ManagedPhaseOneService:
             context,
             conversation_context=conversation_context,
         )
-        guidance = self._generation_dependencies().generate(generation_input)
+        guidance = build_direct_verse_response(generation_input)
+        if guidance is None:
+            guidance = self._generation_dependencies().generate(generation_input)
+        else:
+            logger.info(
+                "phase3.direct_verse_lookup.completed",
+                extra={
+                    "request_id": request_id,
+                    "stage": "direct_verse_lookup",
+                    "citations": list(guidance.citations),
+                    "chunk_ids": list(guidance.grounded_chunk_ids),
+                },
+            )
         try:
             memory = self._conversation_dependencies().update_after_exchange(
                 conversation_context,

@@ -31,6 +31,7 @@ from app.models.generation import (
     GuidanceResponse,
 )
 from app.models.retrieval import GroundingContext
+from app.retrieval.gita_vector_retriever import extract_verse_references
 from app.observability.audit import AuditEvent, AuditSink, NoOpAuditSink
 from app.observability.logging import get_logger, prompt_log_fields, request_logging_context
 from app.observability.metrics import NoOpMetricSink, PhaseOneMetrics
@@ -170,6 +171,57 @@ def build_grounded_generation_input(
         passages=retrieval.chunks,
         validation_model=retrieval.validation_model,
         validation_threshold=retrieval.validation_threshold,
+    )
+
+
+def build_direct_verse_response(
+    generation_input: GroundedGenerationInput,
+) -> GuidanceResponse | None:
+    """Return verified corpus text directly for a single explicit verse lookup."""
+    references = extract_verse_references(generation_input.message)
+    if len(references) != 1 or len(generation_input.passages) != 1:
+        return None
+
+    passage = generation_input.passages[0]
+    requested = references[0]
+    if not (
+        requested == f"{passage.chapter}.{passage.verse_start}"
+        or (
+            passage.verse_start <= int(requested.split(".", 1)[1]) <= passage.verse_end
+            and int(requested.split(".", 1)[0]) == passage.chapter
+        )
+    ):
+        return None
+
+    citation = f"Bhagavad Gita {passage.chapter}.{passage.verse_label}"
+    source_sentence = f"{passage.translation} [{citation}]"
+    lookup_note = (
+        "This is the verified translation for the passage you requested; no personal "
+        "action is being suggested."
+    )
+    trait_id = GroundedGuidanceGenerator._presentation_trait(generation_input)
+    return GuidanceResponse(
+        request_id=generation_input.request_id,
+        guidance=(
+            f"What Krishna said\n{source_sentence}\n\n"
+            f"How to overcome\n{lookup_note}"
+        ),
+        presentation=GuidancePresentation(
+            trait_id=trait_id,
+            label=f"Chapter {passage.chapter}, Verse {passage.verse_label}",
+            what_krishna_said=source_sentence,
+            how_to_overcome=lookup_note,
+            verse=f"{passage.chapter}.{passage.verse_label}",
+            sloka=passage.sloka,
+        ),
+        citations=(citation,),
+        grounded_chunk_ids=(passage.chunk_id,),
+        model="verified-corpus-lookup",
+        validation_model=generation_input.validation_model,
+        faithfulness_probability=1.0,
+        citation_coverage_probability=1.0,
+        helpfulness_probability=1.0,
+        agency_probability=1.0,
     )
 
 

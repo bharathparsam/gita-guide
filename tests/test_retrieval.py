@@ -190,12 +190,18 @@ def test_general_perfection_question_gets_direct_semantic_expansion() -> None:
         ("chapter 17 verse 6", ("17.6",)),
         ("17.6 passage", ("17.6",)),
         ("17.6", ("17.6",)),
+        ("give me the 17.2 verse", ("17.2",)),
     ],
 )
 def test_extracts_explicit_chapter_and_verse_references(
     message: str, expected: tuple[str, ...]
 ) -> None:
     assert extract_verse_references(message) == expected
+
+
+def test_detects_ambiguous_verse_request_without_repeating_gita_name() -> None:
+    assert has_ambiguous_verse_reference("what is said in 17 verse?") is True
+    assert has_ambiguous_verse_reference("give me the 17.2 verse") is False
 
 
 def test_identifies_a_verse_request_that_omits_the_chapter() -> None:
